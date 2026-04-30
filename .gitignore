@@ -1,0 +1,13 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.env
+.env.local
+.venv/
+venv/
+dist/
+build/
+chroma_db/
+*.pptx
+.DS_Store
