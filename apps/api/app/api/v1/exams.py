@@ -290,6 +290,21 @@ async def assign_exam(
     }
     await db.commit()
 
+    # Notify group students about the new exam (fire-and-forget)
+    try:
+        from app.services.notification_service import notify_exam_assigned
+        ends_at_display = exam.ends_at.strftime("%b %d at %H:%M") if exam.ends_at else None
+        await notify_exam_assigned(
+            db=db,
+            group_id=group_id,
+            exam_id=exam.id,
+            exam_title=exam.title,
+            teacher_name=getattr(current_user, "name", "Your teacher"),
+            ends_at_str=ends_at_display,
+        )
+    except Exception as e:
+        logger.warning(f"Exam-assigned notification failed for exam {exam.id}: {e}")
+
     return {
         "id": exam.id,
         "status": exam.status,

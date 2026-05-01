@@ -103,6 +103,20 @@ async def _process_file_async(file_id: str, r2_key: str, mime_type: str):
 
         logger.info(f"File {file_id} processed successfully: {len(chunks)} chunks indexed")
 
+        # Notify group members that a new file is ready to study
+        try:
+            from app.services.notification_service import notify_file_ready
+            async with AsyncSessionLocal() as notify_db:
+                await notify_file_ready(
+                    db=notify_db,
+                    group_id=group_id,
+                    file_id=file_id,
+                    file_name=file_name,
+                    uploader_id=file_obj.user_id,
+                )
+        except Exception as e:
+            logger.warning(f"File-ready notification failed for {file_id}: {e}")
+
     finally:
         try:
             os.unlink(tmp_path)
