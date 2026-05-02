@@ -1,80 +1,323 @@
 # StudyForge
 
-StudyForge is an AI-powered educational RAG (Retrieval-Augmented Generation) platform that helps students and teachers collaborate, study smarter, and assess knowledge effectively.
-
-## Features
-
-- **AI Chat** — Ask questions about uploaded course materials, powered by NVIDIA NIM + DeepSeek-R1
-- **Smart Exams** — Auto-generate MCQ/True-False/Fill-in-the-blank exams from documents
-- **Flashcards** — Spaced-repetition flashcard sets generated from study materials
-- **Study Rooms** — Real-time collaborative study sessions with shared AI chat
-- **File Management** — Upload PDFs, DOCX, PPTX and have them indexed for RAG
-- **Notifications** — In-app, email (SendGrid), and WhatsApp (Twilio) alerts
-- **Billing** — Stripe-powered personal and school subscription plans
+AI-powered educational RAG platform — upload course materials, chat with them, auto-generate exams and flashcards, track student performance.
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
-| Backend | Python FastAPI, SQLAlchemy 2.0, Alembic |
-| Auth | Clerk |
-| AI | NVIDIA NIM (DeepSeek-R1), ChromaDB |
+|---|---|
+| Frontend | Next.js 14 App Router, TypeScript, Tailwind CSS, Clerk, TanStack Query |
+| Backend | Python FastAPI, SQLAlchemy 2.0 async, Alembic |
+| AI | NVIDIA NIM (DeepSeek-R1 LLM + nv-embedqa-e5-v5 embeddings), ChromaDB |
+| Auth | Clerk (JWT, webhooks) |
 | Queue | Celery + Redis |
-| Storage | Cloudflare R2 / MinIO (local) |
+| Storage | MinIO (local) / Cloudflare R2 (production) |
 | Database | PostgreSQL 16 |
+| Notifications | SendGrid (email) + Twilio (WhatsApp) |
 
-## Monorepo Structure
+## Monorepo layout
 
 ```
 studyforge/
   apps/
+    api/          # FastAPI backend
     web/          # Next.js 14 frontend
-    api/          # Python FastAPI backend
   packages/
-    shared-types/ # Shared TypeScript types
+    shared-types/ # Shared TypeScript interfaces (future)
   docker-compose.yml
 ```
 
-## Getting Started
+---
+
+## Local setup (recommended path)
 
 ### Prerequisites
-- Docker & Docker Compose
-- Node.js 20+
+
+- Docker Desktop (for Postgres + Redis + MinIO)
 - Python 3.11+
+- Node.js 20+
+- A [Clerk](https://clerk.com) account (free tier is fine)
+- An [NVIDIA NIM](https://build.nvidia.com) API key
 
-### Local Development
+### 1 — Clone and copy env files
 
-1. Copy environment variables:
-   ```bash
-   cp apps/api/.env.example apps/api/.env
-   ```
+```bash
+git clone <repo-url> studyforge && cd studyforge
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.local.example apps/web/.env.local   # if it exists, otherwise see section below
+```
 
-2. Start infrastructure services:
-   ```bash
-   docker compose up postgres redis minio -d
-   ```
+### 2 — Fill in `apps/api/.env`
 
-3. Run the API:
-   ```bash
-   cd apps/api
-   python -m venv .venv && source .venv/bin/activate
-   pip install -r requirements.txt
-   uvicorn app.main:app --reload
-   ```
+```env
+# Database / Redis / Storage (defaults match docker-compose)
+DATABASE_URL=postgresql+asyncpg://studyforge:studyforge@localhost:5432/studyforge
+REDIS_URL=redis://localhost:6379/0
+R2_BUCKET=studyforge
+R2_ENDPOINT=http://localhost:9000
+R2_ACCESS_KEY=minioadmin
+R2_SECRET_KEY=minioadmin
 
-4. Run the frontend:
-   ```bash
-   cd apps/web
-   npm install && npm run dev
-   ```
+# NVIDIA NIM — get your key at https://build.nvidia.com
+NVIDIA_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxx
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_CHAT_MODEL=deepseek-ai/deepseek-r1
+NVIDIA_EMBED_MODEL=nvidia/nv-embedqa-e5-v5
 
-### Docker (full stack)
+# Clerk — Clerk dashboard → API Keys
+CLERK_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxx
+CLERK_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxx
+
+# Frontend URL (for CORS)
+FRONTEND_URL=http://localhost:3000
+
+# ChromaDB (local file path inside the container / virtualenv)
+CHROMA_PATH=./chroma_db
+
+# Optional — leave blank to skip email/WhatsApp notifications
+SENDGRID_API_KEY=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+
+# Optional — leave blank to skip Stripe billing
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+```
+
+### 3 — Fill in `apps/web/.env.local`
+
+```env
+# Clerk — Clerk dashboard → API Keys (publishable key)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxxxxxxxxxx
+CLERK_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxx
+
+# Clerk redirect URLs
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+
+# Backend URL
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+### 4 — Start infrastructure
+
+```bash
+docker compose up postgres redis minio -d
+```
+
+Wait ~10 seconds for Postgres to become healthy.
+
+### 5 — Create the MinIO bucket
+
+Open [http://localhost:9001](http://localhost:9001), log in with `minioadmin / minioadmin`, and create a bucket named **`studyforge`** with public-read access policy.
+
+Alternatively via CLI:
+
+```bash
+docker run --rm --network host minio/mc \
+  alias set local http://localhost:9000 minioadmin minioadmin && \
+  mc mb local/studyforge && \
+  mc anonymous set download local/studyforge
+```
+
+### 6 — Run database migrations
+
+```bash
+cd apps/api
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+alembic upgrade head
+```
+
+If no migration files exist yet, generate them first:
+
+```bash
+alembic revision --autogenerate -m "initial"
+alembic upgrade head
+```
+
+### 7 — Start the API
+
+```bash
+# From apps/api with virtualenv active
+uvicorn app.main:app --reload --port 8000
+```
+
+Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### 8 — Start Celery worker (file processing + notifications)
+
+In a separate terminal:
+
+```bash
+cd apps/api && source .venv/bin/activate
+celery -A app.tasks.celery_app worker --loglevel=info -Q files,notifications,slides
+```
+
+### 9 — Configure Clerk webhook
+
+In the Clerk dashboard:
+1. Go to **Webhooks → Add endpoint**
+2. URL: `http://localhost:8000/api/v1/auth/webhook`  
+   (Use [ngrok](https://ngrok.com) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) to expose localhost)
+3. Subscribe to: `user.created`, `user.updated`
+4. Copy the **Signing Secret** → paste as `CLERK_WEBHOOK_SECRET` in `apps/api/.env`
+
+### 10 — Start the frontend
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Full Docker stack (no local Python/Node needed)
 
 ```bash
 docker compose up --build
 ```
 
-API will be available at http://localhost:8000  
-Frontend at http://localhost:3000  
-MinIO console at http://localhost:9001
+All 6 services start: `postgres`, `redis`, `minio`, `api`, `celery_worker`, `celery_beat`.
+
+After the stack is up, run migrations once:
+
+```bash
+docker compose exec api alembic upgrade head
+```
+
+---
+
+## Testing the golden path
+
+Follow these steps in order to exercise every major feature:
+
+### 1 — Sign up
+
+- Open [http://localhost:3000](http://localhost:3000)
+- Click **Sign up** → create an account
+- You will be redirected to `/dashboard`
+
+### 2 — Create a group
+
+- Click **New group**, enter a name (e.g. "Advanced Mathematics"), click **Create**
+- The group card appears in the dashboard
+
+### 3 — Upload a file
+
+- Click the group card → you land on the group file manager page
+- Drag and drop a PDF (or DOCX/PPTX/TXT) into the upload zone
+- The file appears with status **Uploading → Processing → Ready**
+- `Processing` means the Celery worker is extracting text, chunking, and embedding into ChromaDB — this takes ~10–60 seconds depending on file size
+- If status stays at **Processing** for more than 2 minutes, check the Celery worker logs
+
+### 4 — RAG chat
+
+- Click **Chat with files**
+- Ask a question related to the document content
+- You should see the response stream token-by-token, followed by collapsible **citation cards** (file name, page, excerpt) and **follow-up suggestion chips**
+- Click a suggestion chip to send that question automatically
+
+### 5 — Generate an exam
+
+- From the group page click **Exams → Generate**
+- Set: title = "Quiz 1", questions = 10, difficulty = Mixed, type = Multiple choice (single)
+- Click **Generate** — wait ~15 seconds for the AI to produce questions
+- The new exam appears in the list with status **draft**
+
+### 6 — Take the exam
+
+- Click the exam → session starts automatically
+- Answer questions using the option buttons; use the **flag** icon to mark for review
+- The number navigator at the top shows green (answered) / amber (flagged) / grey (unanswered)
+- Answers auto-save every 30 seconds
+- Click **Submit** → confirm → you are redirected to the results page
+
+### 7 — Review results
+
+- See your score (e.g. **70%**), time spent, and a per-question breakdown
+- For each wrong answer: correct answer highlighted in green, AI explanation, expandable **source passage**
+
+### 8 — Generate flashcards
+
+- From the group page click **Flashcards → Generate set**
+- Enter a title and click **Generate** — wait ~10 seconds
+- The set appears with a **due count** badge
+- Click the set → click a card to flip it (3D animation) → rate yourself: **Again / Hard / Good / Easy**
+- SM-2 scheduling updates the next review date
+
+### 9 — Teacher analytics (owner/teacher only)
+
+- From the group page click **Analytics**
+- See KPIs: student count, file count, total chats, exam count
+- Exam performance table: per-exam submission count and average score
+- Student overview table: sortable by name, exams taken, average score, chat messages
+
+### 10 — Study rooms
+
+- From the group page click **Rooms → New room**
+- The invite code is copied to your clipboard automatically
+- Share the code with another group member — they click **Join** and paste the code
+- Room appears in the list with member count
+
+---
+
+## API reference
+
+Swagger UI is available at [http://localhost:8000/docs](http://localhost:8000/docs) when the API is running.
+
+Key endpoints:
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v1/auth/webhook` | Clerk user sync (called by Clerk, not frontend) |
+| `GET/POST` | `/api/v1/groups` | List / create groups |
+| `GET/POST` | `/api/v1/groups/{id}/files` | List files / upload (triggers Celery ingestion) |
+| `GET` | `/api/v1/groups/{id}/files/{fid}/status` | Poll ingestion status |
+| `POST` | `/api/v1/groups/{id}/chat` | SSE streaming RAG chat |
+| `GET` | `/api/v1/groups/{id}/chat/history` | Paginated message history |
+| `POST` | `/api/v1/groups/{id}/exams/generate` | AI exam generation |
+| `POST` | `/api/v1/groups/{id}/exams/{eid}/sessions` | Start exam session |
+| `POST` | `/api/v1/groups/{id}/exams/{eid}/sessions/{sid}/submit` | Grade and return corrections |
+| `POST` | `/api/v1/groups/{id}/flashcards/generate` | AI flashcard generation |
+| `GET` | `/api/v1/groups/{id}/flashcards/{setId}/due` | Due cards for today |
+| `POST` | `/api/v1/groups/{id}/flashcards/{setId}/cards/{cid}/review` | SM-2 review |
+| `GET` | `/api/v1/teacher/groups/{id}/analytics` | Class performance data |
+| `POST` | `/api/v1/rooms` | Create study room |
+| `POST` | `/api/v1/rooms/join/{code}` | Join by invite code |
+
+---
+
+## Rate limits (by plan)
+
+| Feature | Free | Personal | School |
+|---|---|---|---|
+| Chat messages / day | 20 | 500 | Unlimited |
+| QCM generation / month | 5 | Unlimited | Unlimited |
+| Flashcard generation | ✗ | ✓ | ✓ |
+| Groups | 1 | Unlimited | Unlimited |
+
+---
+
+## Troubleshooting
+
+**File stuck at "Processing"**  
+→ Check Celery worker is running. Check `NVIDIA_API_KEY` is set. Check MinIO bucket exists and is accessible.
+
+**Chat returns "No relevant context found"**  
+→ The file may still be processing, or the ChromaDB collection is empty. Confirm the file status is "ready".
+
+**`alembic upgrade head` fails with "target database is not up to date"**  
+→ Run `alembic stamp head` first, then retry.
+
+**Clerk webhook returns 400**  
+→ Verify `CLERK_WEBHOOK_SECRET` matches the signing secret shown in the Clerk dashboard webhook settings.
+
+**Frontend shows blank page after sign-in**  
+→ Confirm `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` starts with `pk_test_` (not the secret key).
