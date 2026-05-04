@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
 import app.models  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
-from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications
+from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,6 +66,7 @@ app.include_router(analytics.router, prefix=API_V1_PREFIX)
 app.include_router(teacher.router, prefix=API_V1_PREFIX)
 app.include_router(admin.router, prefix=API_V1_PREFIX)
 app.include_router(notifications.router, prefix=API_V1_PREFIX)
+app.include_router(learning_paths.router, prefix=API_V1_PREFIX)
 
 
 @app.get("/health")

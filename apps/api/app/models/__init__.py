@@ -9,6 +9,7 @@ from app.models.exam import Exam, Question, ExamSession
 from app.models.flashcard import FlashcardSet, Flashcard, FlashcardProgress
 from app.models.room import StudyRoom, RoomMember
 from app.models.notification import Notification, Announcement, Subscription, ReadingEvent
+from app.models.learning_path import LearningPath, LearningPathModule, LearningPathProgress
 
 __all__ = [
     "User", "School",
@@ -19,4 +20,5 @@ __all__ = [
     "FlashcardSet", "Flashcard", "FlashcardProgress",
     "StudyRoom", "RoomMember",
     "Notification", "Announcement", "Subscription", "ReadingEvent",
+    "LearningPath", "LearningPathModule", "LearningPathProgress",
 ]
