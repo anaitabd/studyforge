@@ -1,10 +1,11 @@
 import asyncio
 import json
 import logging
+import random
 import time
 from typing import AsyncGenerator
 
-from openai import OpenAI, RateLimitError, APIError
+from openai import OpenAI, RateLimitError, APIError, APITimeoutError, APIStatusError
 
 from app.core.config import settings
 
@@ -48,6 +49,7 @@ class AIService:
             return await self._complete_with_retry(kwargs)
 
     async def _complete_with_retry(self, kwargs: dict) -> str:
+        backoff = [2, 5, 10]
         for attempt in range(3):
             try:
                 response = await asyncio.get_event_loop().run_in_executor(
@@ -58,14 +60,27 @@ class AIService:
             except RateLimitError:
                 if attempt == 2:
                     raise
-                wait = 2 ** attempt
-                logger.warning(f"Rate limited by NVIDIA API, retrying in {wait}s...")
+                wait = backoff[attempt] + random.uniform(0, 1)
+                logger.warning(f"Rate limited by NVIDIA API, retrying in {wait:.1f}s...")
                 await asyncio.sleep(wait)
+            except APITimeoutError:
+                if attempt == 2:
+                    raise
+                wait = backoff[attempt] + random.uniform(0, 1)
+                logger.warning(f"NVIDIA API timeout, retrying in {wait:.1f}s...")
+                await asyncio.sleep(wait)
+            except APIStatusError as e:
+                if e.status_code in (502, 503, 504) and attempt < 2:
+                    wait = backoff[attempt] + random.uniform(0, 1)
+                    logger.warning(f"NVIDIA API {e.status_code}, retrying in {wait:.1f}s...")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
             except APIError as e:
                 if attempt == 2:
                     raise
                 logger.warning(f"NVIDIA API error: {e}, retrying...")
-                await asyncio.sleep(1)
+                await asyncio.sleep(backoff[attempt])
 
     async def _stream_completion(self, kwargs: dict) -> AsyncGenerator[str, None]:
         def _sync_stream():

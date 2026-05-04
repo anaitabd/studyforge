@@ -43,7 +43,11 @@ _MODULE_CONTENT_SCHEMA = """
 """.strip()
 
 
-def _sample_chunks(chunks: list[dict], max_chunks: int = 60) -> list[dict]:
+def _truncate(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
+
+
+def _sample_chunks(chunks: list[dict], max_chunks: int) -> list[dict]:
     if len(chunks) <= max_chunks:
         return chunks
     # Stratified-ish sample: keep early/middle/late representation.
@@ -51,14 +55,14 @@ def _sample_chunks(chunks: list[dict], max_chunks: int = 60) -> list[dict]:
     return [chunks[int(i * step)] for i in range(max_chunks)]
 
 
-def _format_chunks(chunks: list[dict]) -> str:
+def _format_chunks(chunks: list[dict], char_cap: int = 400) -> str:
     blocks = []
     for c in chunks:
         meta = c.get("metadata") or {}
         page = meta.get("page_number")
         src = meta.get("file_name") or "source"
         prefix = f"[{src} p.{page}]" if page else f"[{src}]"
-        blocks.append(f"{prefix}\n{c['text']}")
+        blocks.append(f"{prefix}\n{_truncate(c['text'], char_cap)}")
     return "\n\n".join(blocks)
 
 
@@ -119,18 +123,18 @@ async def generate_path(
     if not chunks:
         raise ValueError("No indexed content. Wait for processing to finish.")
 
-    sampled = _sample_chunks(chunks, max_chunks=60)
-    random.shuffle(sampled)
-    corpus = _format_chunks(sampled)
+    outline_sample = _sample_chunks(chunks, max_chunks=15)
+    random.shuffle(outline_sample)
+    outline_corpus = _format_chunks(outline_sample, char_cap=400)
 
     logger.info(
         f"Generating learning path outline for group {group_id} "
-        f"with {len(sampled)} chunks, target {module_count} modules"
+        f"with {len(outline_sample)} chunks (truncated), target {module_count} modules"
     )
     outline = await ai_service.generate_structured_json(
-        prompt=_build_outline_prompt(corpus, module_count, language, title),
+        prompt=_build_outline_prompt(outline_corpus, module_count, language, title),
         schema_description=_OUTLINE_SCHEMA,
-        max_tokens=4096,
+        max_tokens=3072,
     )
     if not isinstance(outline, dict) or not isinstance(outline.get("modules"), list):
         raise ValueError("AI returned unexpected format for path outline.")
@@ -138,22 +142,42 @@ async def generate_path(
     outline_modules = outline["modules"][:module_count]
     logger.info(
         f"Outline ready: {len(outline_modules)} modules. "
-        f"Generating per-module content in parallel."
-    )
-    # Reuse a shorter corpus per module to keep token usage reasonable.
-    short_corpus = _format_chunks(sampled[:30])
-    content_results = await asyncio.gather(
-        *[
-            ai_service.generate_structured_json(
-                prompt=_build_module_content_prompt(m, short_corpus, language),
-                schema_description=_MODULE_CONTENT_SCHEMA,
-                max_tokens=2048,
-            )
-            for m in outline_modules
-        ],
-        return_exceptions=True,
+        f"Fetching per-module content (max 3 in parallel)."
     )
 
+    sem = asyncio.Semaphore(3)
+
+    async def _fetch_content(m: dict) -> dict | Exception:
+        # Pull chunks targeted at this module's concepts via vector search.
+        query_text = (m.get("title") or "") + " " + " ".join(m.get("key_concepts") or [])
+        try:
+            embeddings = await ai_service.embed_texts([query_text.strip() or "course content"], input_type="query")
+            mod_chunks = vector_store.query(
+                group_id=group_id,
+                query_embedding=embeddings[0],
+                top_k=6,
+                min_score=0.0,
+                file_ids=resolved_ids,
+            )
+        except Exception as e:
+            logger.warning(f"Per-module retrieval failed: {e}")
+            mod_chunks = outline_sample[:6]
+
+        mod_corpus = _format_chunks(mod_chunks[:6], char_cap=500)
+        async with sem:
+            try:
+                return await ai_service.generate_structured_json(
+                    prompt=_build_module_content_prompt(m, mod_corpus, language),
+                    schema_description=_MODULE_CONTENT_SCHEMA,
+                    max_tokens=1536,
+                )
+            except Exception as e:
+                logger.warning(f"Module content generation failed for '{m.get('title')}': {e}")
+                return e
+
+    content_results = await asyncio.gather(*[_fetch_content(m) for m in outline_modules])
+
+    placeholder = "_(content generation failed for this module — regenerate the path or open the module to retry)_"
     raw = {
         "title": outline.get("title") or title,
         "summary": outline.get("summary"),
@@ -161,9 +185,9 @@ async def generate_path(
         "modules": [],
     }
     for m, content in zip(outline_modules, content_results):
-        md = ""
+        md = placeholder
         if isinstance(content, dict):
-            md = str(content.get("content_markdown") or "")
+            md = str(content.get("content_markdown") or "").strip() or placeholder
         raw["modules"].append({**m, "content_markdown": md})
 
     path_id = str(uuid.uuid4())
