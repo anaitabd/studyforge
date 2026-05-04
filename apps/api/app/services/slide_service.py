@@ -70,6 +70,8 @@ class SlideService:
             "(title|section_header|content|definition|summary), title (max 8 words), "
             "bullets (array of strings), speaker_notes (3-5 sentences), source_file. "
             "Start with a title slide. Add section headers between topics. "
+            "Add progress-awareness: include periodic recap/progress bullets such as 'You are here' and completed topics. "
+            "For content slides keep 3-5 concise bullets and use visual phrasing suitable for modern presentation design. "
             "End with a key takeaways summary slide. "
             "Return ONLY a valid JSON array, no markdown, no explanation."
         )
