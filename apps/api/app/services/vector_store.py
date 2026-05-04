@@ -13,12 +13,17 @@ _DISTANCE_TO_SIMILARITY = lambda d: 1.0 - d  # cosine distance → similarity
 
 class VectorStore:
     def __init__(self):
-        self.client = chromadb.HttpClient(
-            host=settings.CHROMA_HOST,
-            port=settings.CHROMA_PORT,
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
-        logger.info(f"ChromaDB HTTP client → {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
+        self.client = None
+
+    def _get_client(self):
+        if self.client is None:
+            self.client = chromadb.HttpClient(
+                host=settings.CHROMA_HOST,
+                port=settings.CHROMA_PORT,
+                settings=ChromaSettings(anonymized_telemetry=False),
+            )
+            logger.info(f"ChromaDB HTTP client → {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
+        return self.client
 
     def _collection_name(self, group_id: str) -> str:
         # ChromaDB collection names must be 3-63 chars, alphanumeric + hyphens
@@ -27,7 +32,7 @@ class VectorStore:
 
     def get_or_create_collection(self, group_id: str) -> chromadb.Collection:
         name = self._collection_name(group_id)
-        return self.client.get_or_create_collection(
+        return self._get_client().get_or_create_collection(
             name=name,
             metadata={"hnsw:space": "cosine"},
         )
@@ -145,7 +150,7 @@ class VectorStore:
         """Delete the entire collection for a group."""
         name = self._collection_name(group_id)
         try:
-            self.client.delete_collection(name)
+            self._get_client().delete_collection(name)
             logger.info(f"Deleted collection for group {group_id}")
         except Exception as e:
             logger.error(f"Error deleting collection: {e}")
