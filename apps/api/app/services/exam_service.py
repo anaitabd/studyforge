@@ -135,8 +135,11 @@ def _build_generation_prompt(
         "- Every question MUST be answerable from the provided text excerpts only.\n"
         "- source_passage must be a verbatim quote from one of the excerpts above.\n"
         "- Do NOT invent facts not present in the material.\n"
+        "- Make each question exam-quality: unambiguous wording, one clearly best interpretation, and no trivia phrasing.\n"
         "- Make distractors plausible but clearly wrong to a student who read the material.\n"
-        "- Vary the question style (definition, application, comparison, consequence).\n\n"
+        "- Vary the question style (definition, application, comparison, consequence).\n"
+        "- Ensure broad coverage: avoid repeating near-identical concepts across questions.\n"
+        "- Include at least 30% higher-order questions (application, analysis, or troubleshooting) when source allows.\n\n"
         f"COURSE MATERIAL:\n\n{context}"
     )
 

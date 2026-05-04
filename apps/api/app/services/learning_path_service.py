@@ -74,8 +74,11 @@ def _build_outline_prompt(
     return (
         f"Design a structured learning-path OUTLINE with EXACTLY {module_count} modules. "
         f"Logical order: foundations → core concepts → applied/advanced topics. "
+        "Optimize for learner momentum: every module should feel like a concrete milestone. "
         f"For each module include only: title, objectives, key_concepts, estimated_minutes, source_pages. "
         f"Do NOT write the lesson content yet. "
+        "Ensure objectives are measurable and action-oriented (e.g., explain, solve, compare, build). "
+        "Balance module load so adjacent modules have similar effort and avoid large jumps in complexity. "
         f"Cite real page numbers from the material. Write in {lang}.{hint}\n\n"
         f"---SOURCE MATERIAL---\n{corpus}"
     )
@@ -94,6 +97,8 @@ def _build_module_content_prompt(
         f"Key concepts: {concepts}\n\n"
         f"Produce content_markdown of 200-400 words: clear teaching prose, "
         f"short code blocks or worked examples when relevant, no headings above h3. "
+        "Use this structure in natural flow: short concept explanation → worked example → quick self-check question. "
+        "End with one line titled 'Next step:' that bridges to the likely following module topic. "
         f"Use only information from the source material below. Write in {lang}.\n\n"
         f"---SOURCE MATERIAL---\n{corpus}"
     )
