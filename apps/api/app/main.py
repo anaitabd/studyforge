@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
-from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin
+import app.models  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
+from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,11 +19,23 @@ API_V1_PREFIX = "/api/v1"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting StudyForge API...")
+    _log_chroma_status()
     # Pre-load reranker model in background
     from app.services.reranker import _get_model
     asyncio.get_event_loop().run_in_executor(None, _get_model)
     yield
     logger.info("Shutting down StudyForge API...")
+
+
+def _log_chroma_status():
+    host = f"{settings.CHROMA_HOST}:{settings.CHROMA_PORT}"
+    try:
+        from app.services.vector_store import vector_store
+        vector_store.client.heartbeat()
+        count = len(vector_store.client.list_collections())
+        logger.info(f"ChromaDB host={host} collections={count} (heartbeat OK)")
+    except Exception as e:
+        logger.warning(f"ChromaDB status check failed for host={host}: {e}")
 
 
 app = FastAPI(
@@ -52,6 +65,7 @@ app.include_router(rooms.router, prefix=API_V1_PREFIX)
 app.include_router(analytics.router, prefix=API_V1_PREFIX)
 app.include_router(teacher.router, prefix=API_V1_PREFIX)
 app.include_router(admin.router, prefix=API_V1_PREFIX)
+app.include_router(notifications.router, prefix=API_V1_PREFIX)
 
 
 @app.get("/health")

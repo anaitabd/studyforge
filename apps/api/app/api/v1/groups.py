@@ -71,11 +71,14 @@ async def list_groups(
             "description": g.description,
             "color": g.color,
             "is_archived": g.is_archived,
+            "owner_id": g.owner_user_id,
             "owner_user_id": g.owner_user_id,
+            "plan": current_user.plan,
             "file_count": len(files),
             "member_count": len(members),
             "my_role": membership.role if membership else "student",
             "created_at": g.created_at.isoformat(),
+            "updated_at": g.updated_at.isoformat(),
         })
 
     return {"groups": group_list}
@@ -133,7 +136,14 @@ async def create_group(
         "name": group.name,
         "description": group.description,
         "color": group.color,
+        "owner_id": group.owner_user_id,
+        "owner_user_id": group.owner_user_id,
+        "plan": current_user.plan,
+        "file_count": 0,
+        "member_count": 1,
+        "my_role": "owner",
         "created_at": group.created_at.isoformat(),
+        "updated_at": group.updated_at.isoformat(),
     }
 
 
@@ -189,6 +199,7 @@ async def get_group(
                 "mime_type": f.mime_type,
                 "size_bytes": f.size_bytes,
                 "status": f.status,
+                "error_message": f.error_message,
                 "chunk_count": f.chunk_count,
                 "created_at": f.created_at.isoformat(),
             }

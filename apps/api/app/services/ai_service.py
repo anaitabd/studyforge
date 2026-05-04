@@ -161,7 +161,9 @@ class AIService:
                 stream=False,
             )
         )
-        return result.strip() or query
+        rewritten_query = result.strip() or query
+        logger.debug(f"Query rewrite: '{query}' → '{rewritten_query}'")
+        return rewritten_query
 
     async def generate_structured_json(
         self, prompt: str, schema_description: str, max_tokens: int = 8192

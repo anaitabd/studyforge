@@ -1,0 +1,101 @@
+"use client";
+
+import { useState } from "react";
+import { CheckCircle2, XCircle, ChevronDown, FileText, Lightbulb } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface Correction {
+  question_id: string;
+  question: string;
+  options: Record<string, string> | null;
+  student_answer: string | null;
+  correct_answer: string;
+  is_correct: boolean;
+  explanation: string;
+  source_passage: string | null;
+  difficulty: string;
+}
+
+export function CorrectionCard({ correction, index }: { correction: Correction; index: number }) {
+  const [expanded, setExpanded] = useState(!correction.is_correct);
+  const c = correction;
+  const studentText = c.student_answer && c.options ? `${c.student_answer}. ${c.options[c.student_answer] ?? ""}` : c.student_answer ?? "(no answer)";
+  const correctText = c.options ? `${c.correct_answer}. ${c.options[c.correct_answer] ?? ""}` : c.correct_answer;
+
+  return (
+    <article className={cn("rounded-2xl border overflow-hidden transition-all", c.is_correct ? "border-teal/30 bg-teal/5" : "border-destructive/30 bg-destructive/5")}>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full text-left p-4 flex items-start gap-3 hover:bg-black/[0.02]"
+      >
+        {c.is_correct
+          ? <CheckCircle2 size={18} className="text-teal shrink-0 mt-0.5" />
+          : <XCircle size={18} className="text-destructive shrink-0 mt-0.5" />}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
+            Q{index + 1} · {c.difficulty} · {c.is_correct ? "Correct" : "Incorrect"}
+          </p>
+          <p className="text-sm font-medium text-primary line-clamp-2">{c.question}</p>
+        </div>
+        <ChevronDown size={16} className={cn("shrink-0 text-slate-400 mt-1 transition-transform", expanded && "rotate-180")} />
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-5 space-y-3 animate-in">
+          {c.options && (
+            <ul className="space-y-1">
+              {Object.entries(c.options).map(([letter, text]) => {
+                const isCorrect = letter === c.correct_answer;
+                const isStudent = letter === c.student_answer;
+                return (
+                  <li
+                    key={letter}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-lg text-sm",
+                      isCorrect && "bg-teal/10 text-teal font-medium",
+                      isStudent && !isCorrect && "bg-destructive/10 text-destructive line-through",
+                      !isCorrect && !isStudent && "text-slate-600",
+                    )}
+                  >
+                    <span className={cn("w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold shrink-0", isCorrect ? "bg-teal text-white border-teal" : isStudent ? "bg-destructive text-white border-destructive" : "border-slate-300 text-slate-500")}>
+                      {letter}
+                    </span>
+                    <span>{text as string}</span>
+                    {isCorrect && <CheckCircle2 size={14} className="ml-auto" />}
+                    {isStudent && !isCorrect && <XCircle size={14} className="ml-auto" />}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {!c.options && (
+            <div className="space-y-1.5 text-sm">
+              <p>Your answer: <span className={cn("font-medium", c.is_correct ? "text-teal" : "text-destructive")}>{studentText}</span></p>
+              {!c.is_correct && <p>Correct answer: <span className="font-medium text-teal">{correctText}</span></p>}
+            </div>
+          )}
+
+          {c.explanation && (
+            <div className="rounded-lg bg-white border border-slate-200 p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-1.5 flex items-center gap-1">
+                <Lightbulb size={11} className="text-amber" /> Why
+              </p>
+              <p className="text-sm text-slate-700 leading-relaxed">{c.explanation}</p>
+            </div>
+          )}
+
+          {c.source_passage && (
+            <details className="rounded-lg border-l-4 border-accent bg-accent/5 p-3">
+              <summary className="text-xs font-bold uppercase tracking-wide text-accent cursor-pointer flex items-center gap-1">
+                <FileText size={11} /> Found in your course material
+              </summary>
+              <p className="mt-2 text-sm italic text-slate-700 leading-relaxed">{c.source_passage}</p>
+            </details>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}

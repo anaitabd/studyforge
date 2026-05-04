@@ -1,29 +1,25 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { setAuthToken } from "@/lib/api";
+import { registerTokenGetter, registerUnauthorizedHandler, registerUpgradeHandler } from "@/lib/api";
+import { useAppStore } from "@/store/useAppStore";
 
-/** Keeps the Axios instance JWT in sync with Clerk's live token. */
 export function AuthSync() {
   const { getToken } = useAuth();
+  const router = useRouter();
+  const openUpgradeModal = useAppStore((s) => s.openUpgradeModal);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function sync() {
-      const token = await getToken();
-      if (!cancelled) setAuthToken(token);
-    }
-
-    sync();
-    // Re-sync every 55 s (Clerk tokens expire after 60 s)
-    const id = setInterval(sync, 55_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [getToken]);
+    registerTokenGetter(() => getToken());
+    registerUnauthorizedHandler(() => {
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/sign-")) {
+        router.push("/sign-in");
+      }
+    });
+    registerUpgradeHandler((reason) => openUpgradeModal(reason));
+  }, [getToken, router, openUpgradeModal]);
 
   return null;
 }

@@ -47,15 +47,19 @@ class RAGService:
             embeddings = await ai_service.embed_texts([rewritten], input_type="query")
             query_embedding = embeddings[0]
 
-            # 3. Retrieve top-8 chunks from ChromaDB (min cosine similarity 0.72)
+            # 3. Retrieve top-8 chunks from ChromaDB
             raw_chunks = vector_store.query(
                 group_id=group_id,
                 query_embedding=query_embedding,
                 top_k=8,
-                min_score=0.72,
+                min_score=0.4,
             )
+            logger.info(f"Semantic search retrieved {len(raw_chunks)} chunks for query '{rewritten}'")
+            if raw_chunks:
+                logger.debug(f"Top similarity scores: {[round(c.get('similarity_score', 0), 3) for c in raw_chunks[:3]]}")
 
             if not raw_chunks:
+                logger.warning(f"No chunks found for group {group_id} after semantic search. Rewritten query: '{rewritten}'")
                 yield {"type": "token", "content": NO_CONTEXT_REPLY}
                 yield {"type": "done"}
                 return

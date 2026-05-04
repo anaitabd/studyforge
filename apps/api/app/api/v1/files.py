@@ -57,10 +57,13 @@ async def list_files(
         "files": [
             {
                 "id": f.id,
+                "group_id": f.group_id,
                 "name": f.name,
                 "mime_type": f.mime_type,
+                "size": f.size_bytes,
                 "size_bytes": f.size_bytes,
                 "status": f.status,
+                "error_message": f.error_message,
                 "chunk_count": f.chunk_count,
                 "indexed_at": f.indexed_at.isoformat() if f.indexed_at else None,
                 "created_at": f.created_at.isoformat(),
@@ -147,6 +150,7 @@ async def get_file_status(
     return {
         "id": file_obj.id,
         "status": file_obj.status,
+        "error_message": file_obj.error_message,
         "chunk_count": file_obj.chunk_count,
         "indexed_at": file_obj.indexed_at.isoformat() if file_obj.indexed_at else None,
     }
@@ -184,3 +188,28 @@ async def delete_file(
     await db.commit()
 
     return {"message": "File deleted successfully"}
+
+
+@router.get(
+    "/groups/{group_id}/files/{file_id}/download",
+    responses={
+        403: {"description": "Not a member of this group"},
+        404: {"description": "File not found"},
+    },
+)
+async def get_download_url(
+    group_id: str,
+    file_id: str,
+    current_user: CurrentUser,
+    db: DB,
+    expires_in: int = 3600,
+):
+    """Return a presigned URL the client can use to fetch the file directly from R2/MinIO."""
+    await verify_group_member(group_id, current_user.id, db)
+    result = await db.execute(select(File).where(File.id == file_id, File.group_id == group_id))
+    file_obj = result.scalar_one_or_none()
+    if not file_obj:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    url = storage_service.get_presigned_url(file_obj.r2_key, expires_in=min(max(expires_in, 60), 86400))
+    return {"url": url, "expires_in": expires_in, "name": file_obj.name, "mime_type": file_obj.mime_type}

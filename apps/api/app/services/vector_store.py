@@ -12,12 +12,13 @@ _DISTANCE_TO_SIMILARITY = lambda d: 1.0 - d  # cosine distance → similarity
 
 
 class VectorStore:
-    def __init__(self, path: str):
-        self.client = chromadb.PersistentClient(
-            path=path,
+    def __init__(self):
+        self.client = chromadb.HttpClient(
+            host=settings.CHROMA_HOST,
+            port=settings.CHROMA_PORT,
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-        logger.info(f"ChromaDB initialized at {path}")
+        logger.info(f"ChromaDB HTTP client → {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
 
     def _collection_name(self, group_id: str) -> str:
         # ChromaDB collection names must be 3-63 chars, alphanumeric + hyphens
@@ -159,4 +160,4 @@ class VectorStore:
 
 
 # Singleton
-vector_store = VectorStore(settings.CHROMA_PATH)
+vector_store = VectorStore()

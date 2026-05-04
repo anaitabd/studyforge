@@ -1,17 +1,25 @@
+import json
 import logging
 from typing import Annotated
 
+import redis
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.chat import ChatMessage
 from app.models.exam import Exam, ExamSession
 from app.models.file import File
 from app.models.group import Group, GroupMember
+from app.models.notification import ReadingEvent
 from app.models.user import User
+from app.tasks.slide_tasks import generate_slides_task
+
+_redis = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/teacher", tags=["teacher"])
@@ -84,6 +92,21 @@ async def get_group_analytics(
     )
     all_sessions = sessions_result.scalars().all()
 
+    # Reading events for this group's files
+    file_ids_result = await db.execute(
+        select(File.id, File.name).where(File.group_id == group_id)
+    )
+    file_rows = file_ids_result.all()
+    file_id_to_name = {fid: fname for fid, fname in file_rows}
+    file_ids = list(file_id_to_name.keys())
+
+    reading_events: list[ReadingEvent] = []
+    if file_ids:
+        re_result = await db.execute(
+            select(ReadingEvent).where(ReadingEvent.file_id.in_(file_ids))
+        )
+        reading_events = list(re_result.scalars().all())
+
     # Per-student analytics
     student_stats: dict[str, dict] = {}
     for member, user in members:
@@ -108,6 +131,11 @@ async def get_group_analytics(
         )
         user_chat_count = user_chat_result.scalar() or 0
 
+        user_reading = [r for r in reading_events if r.user_id == user.id]
+        files_read = len({r.file_id for r in user_reading})
+        active_minutes = round(sum(r.active_time_s for r in user_reading) / 60.0, 1)
+        last_active = max((r.session_end for r in user_reading), default=None)
+
         student_stats[user.id] = {
             "user_id": user.id,
             "name": user.name,
@@ -116,6 +144,9 @@ async def get_group_analytics(
             "exams_taken": len(user_sessions),
             "avg_score": avg_score,
             "chat_count": user_chat_count,
+            "files_read": files_read,
+            "active_minutes": active_minutes,
+            "last_active": last_active.isoformat() if last_active else None,
             "joined_at": member.joined_at.isoformat(),
         }
 
@@ -140,6 +171,32 @@ async def get_group_analytics(
             "created_at": exam.created_at.isoformat(),
         })
 
+    file_summaries = []
+    for fid, fname in file_rows:
+        events = [r for r in reading_events if r.file_id == fid]
+        unique_readers = len({r.user_id for r in events})
+        avg_scroll = (
+            round(sum(r.scroll_depth_pct for r in events) / len(events), 1)
+            if events else 0.0
+        )
+        avg_active_minutes = (
+            round(sum(r.active_time_s for r in events) / len(events) / 60.0, 1)
+            if events else 0.0
+        )
+        file_summaries.append({
+            "file_id": fid,
+            "name": fname,
+            "unique_readers": unique_readers,
+            "avg_scroll_depth": avg_scroll,
+            "avg_active_minutes": avg_active_minutes,
+            "total_sessions": len(events),
+        })
+
+    avg_active_minutes_class = (
+        round(sum(r.active_time_s for r in reading_events) / max(len(reading_events), 1) / 60.0, 1)
+        if reading_events else 0.0
+    )
+
     return {
         "group_id": group_id,
         "group_name": group.name,
@@ -148,6 +205,54 @@ async def get_group_analytics(
         "file_count": file_count,
         "total_chats": total_chats,
         "exam_count": len(exams),
+        "avg_active_minutes": avg_active_minutes_class,
         "students": list(student_stats.values()),
         "exams": exam_summaries,
+        "files": file_summaries,
     }
+
+
+class SlideGenRequest(BaseModel):
+    file_ids: list[str] = Field(..., min_length=1)
+    style: str = "academic"
+    course_name: str
+    professor_name: str = ""
+    language: str = "en"
+
+
+@router.post("/groups/{group_id}/slides/generate")
+async def generate_slides(
+    group_id: str,
+    body: SlideGenRequest,
+    current_user: CurrentUser,
+    db: DB,
+):
+    membership_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == current_user.id,
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+    if not membership or membership.role not in ("owner", "teacher"):
+        raise HTTPException(status_code=403, detail="Teacher or owner access required")
+
+    config = {
+        "style": body.style,
+        "course_name": body.course_name,
+        "professor_name": body.professor_name,
+        "language": body.language,
+    }
+    task = generate_slides_task.delay(group_id, body.file_ids, config, current_user.id)
+    return {"task_id": task.id, "estimated_seconds": 45}
+
+
+@router.get("/tasks/{task_id}")
+async def get_task_status(task_id: str, current_user: CurrentUser):
+    raw = _redis.get(f"slide_task:{task_id}")
+    if not raw:
+        return {"status": "pending"}
+    data = json.loads(raw)
+    if data.get("user_id") and data["user_id"] != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {k: v for k, v in data.items() if k != "user_id"}

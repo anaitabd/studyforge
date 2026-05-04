@@ -185,6 +185,9 @@ async def generate_set(
         title=title,
     )
     db.add(card_set)
+    # Force the set INSERT before the cards so the FK is satisfied
+    # regardless of SQLAlchemy's unit-of-work ordering.
+    await db.flush()
 
     cards_out = []
     for i, raw in enumerate(raw_cards):

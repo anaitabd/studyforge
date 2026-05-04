@@ -20,7 +20,7 @@ export function useGroups() {
     queryKey: ["groups"],
     queryFn: async () => {
       const res = await api.get("/api/v1/groups");
-      return res.data;
+      return res.data.groups ?? res.data;
     },
   });
 }

@@ -12,9 +12,9 @@ def _get_model():
         try:
             from sentence_transformers import CrossEncoder
             _model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-            logger.info("Cross-encoder reranker loaded.")
+            logger.info("✓ Cross-encoder reranker loaded successfully.")
         except Exception as e:
-            logger.warning(f"Could not load reranker: {e}. Falling back to similarity scores.")
+            logger.warning(f"✗ Failed to load reranker model: {e}. Falling back to similarity scores only.")
     return _model
 
 

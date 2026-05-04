@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import api from "@/lib/api";
+import api, { getToken } from "@/lib/api";
 
 export interface Citation {
   file_name: string;
@@ -69,14 +69,14 @@ export function useChat(groupId: string) {
       abortRef.current = new AbortController();
 
       try {
-        const token = api.defaults.headers.common["Authorization"] as string | undefined;
+        const rawToken = await getToken();
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/groups/${groupId}/chat`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              ...(token ? { Authorization: token } : {}),
+              ...(rawToken ? { Authorization: `Bearer ${rawToken}` } : {}),
             },
             body: JSON.stringify({ message: text.trim() }),
             signal: abortRef.current.signal,

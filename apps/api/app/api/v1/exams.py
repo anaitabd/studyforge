@@ -436,13 +436,48 @@ async def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Calculate percentage
+    percentage = 0
+    if session.total and session.total > 0:
+        percentage = round((session.score / session.total) * 100)
+
+    # Build corrections from questions and answers (only if submitted)
+    corrections = []
+    if session.submitted_at:
+        q_result = await db.execute(
+            select(Question)
+            .where(Question.exam_id == exam_id)
+            .order_by(Question.order_index)
+        )
+        questions = q_result.scalars().all()
+        
+        for q in questions:
+            student_answer = session.answers.get(q.id)
+            is_correct = (
+                student_answer is not None
+                and student_answer.upper() == q.correct_answer.upper()
+            )
+            corrections.append({
+                "question_id": q.id,
+                "question": q.content,
+                "options": q.options,
+                "student_answer": student_answer,
+                "correct_answer": q.correct_answer,
+                "is_correct": is_correct,
+                "explanation": q.explanation,
+                "source_passage": q.source_passage,
+                "difficulty": q.difficulty,
+            })
+
     return {
         "session_id": session.id,
         "exam_id": session.exam_id,
         "answers": session.answers,
-        "score": session.score,
-        "total": session.total,
+        "score": session.score or 0,
+        "total": session.total or 0,
+        "percentage": percentage,
         "submitted_at": session.submitted_at.isoformat() if session.submitted_at else None,
         "started_at": session.started_at.isoformat(),
-        "time_spent_s": session.time_spent_s,
+        "time_spent_s": session.time_spent_s or 0,
+        "corrections": corrections,
     }

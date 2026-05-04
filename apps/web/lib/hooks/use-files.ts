@@ -22,7 +22,7 @@ export function useFiles(groupId: string) {
     queryKey: ["files", groupId],
     queryFn: async () => {
       const res = await api.get(`/api/v1/groups/${groupId}/files`);
-      return res.data;
+      return res.data.files ?? res.data;
     },
   });
 

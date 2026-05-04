@@ -1,65 +1,71 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef } from "react";
 import { Send, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface Props {
-  onSend: (text: string) => void;
-  onStop: () => void;
-  isStreaming: boolean;
-  disabled?: boolean;
-}
+const LANGUAGES = [
+  { code: "auto", label: "Auto" },
+  { code: "en", label: "EN" },
+  { code: "fr", label: "FR" },
+  { code: "ar", label: "AR" },
+  { code: "es", label: "ES" },
+];
 
-export function ChatInput({ onSend, onStop, isStreaming, disabled }: Props) {
+export interface ChatInputHandle { setText: (s: string) => void }
+
+interface Props { onSend: (text: string, language: string) => void; onStop: () => void; isStreaming: boolean; disabled?: boolean; }
+
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onStop, isStreaming, disabled }, ref) {
   const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [lang, setLang] = useState("auto");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({ setText: (s) => { setValue(s); taRef.current?.focus(); } }), []);
 
   const submit = useCallback(() => {
-    const text = value.trim();
-    if (!text || isStreaming) return;
-    onSend(text);
+    const t = value.trim();
+    if (!t || isStreaming) return;
+    onSend(t, lang);
     setValue("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-  }, [value, isStreaming, onSend]);
+    if (taRef.current) taRef.current.style.height = "auto";
+  }, [value, lang, isStreaming, onSend]);
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submit();
+  useEffect(() => {
+    if (taRef.current) {
+      taRef.current.style.height = "auto";
+      taRef.current.style.height = `${Math.min(taRef.current.scrollHeight, 160)}px`;
     }
-  }
-
-  function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setValue(e.target.value);
-    const ta = e.target;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }
+  }, [value]);
 
   return (
-    <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 shadow-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+    <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 shadow-sm focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 transition-all">
       <textarea
-        ref={textareaRef}
+        ref={taRef}
         value={value}
-        onChange={handleInput}
-        onKeyDown={handleKeyDown}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
         disabled={disabled}
-        placeholder="Ask a question about your files…"
+        placeholder={disabled ? "Add and process files first…" : "Ask a question about your files…"}
         rows={1}
-        className="flex-1 resize-none bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none"
-        style={{ maxHeight: 200 }}
+        className="flex-1 resize-none bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none px-2 py-1"
+        style={{ maxHeight: 160 }}
       />
+      <select
+        value={lang}
+        onChange={(e) => setLang(e.target.value)}
+        className="text-[11px] font-medium text-slate-500 bg-transparent border border-slate-200 rounded-md px-1.5 py-1 outline-none cursor-pointer"
+        aria-label="Language"
+      >
+        {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+      </select>
       <button
+        type="button"
         onClick={isStreaming ? onStop : submit}
         disabled={!isStreaming && (!value.trim() || disabled)}
         className={cn(
           "shrink-0 p-2 rounded-xl transition-colors",
-          isStreaming
-            ? "bg-red-500 text-white hover:bg-red-600"
-            : "bg-primary text-white hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+          isStreaming ? "bg-destructive text-white hover:bg-destructive/90" : "bg-accent text-white hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed",
         )}
         aria-label={isStreaming ? "Stop" : "Send"}
       >
@@ -67,4 +73,4 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: Props) {
       </button>
     </div>
   );
-}
+});

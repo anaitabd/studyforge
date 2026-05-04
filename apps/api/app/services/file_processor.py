@@ -6,8 +6,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE_TOKENS = 512
-CHUNK_OVERLAP_TOKENS = 64
+CHUNK_SIZE_TOKENS = 1024  # Increased from 512 for better context retention
+CHUNK_OVERLAP_TOKENS = 256  # Increased from 64 for smoother chunk boundaries
 AVG_CHARS_PER_TOKEN = 4  # rough approximation
 
 
@@ -36,6 +36,33 @@ class FileProcessor:
             return self._extract_text(file_path)
 
     def _extract_pdf(self, file_path: str) -> list[dict]:
+        try:
+            import pypdfium2 as pdfium
+        except ImportError:
+            return self._extract_pdf_pdfplumber(file_path)
+
+        pages = []
+        try:
+            pdf = pdfium.PdfDocument(file_path)
+            try:
+                for i in range(len(pdf)):
+                    page = pdf[i]
+                    try:
+                        textpage = page.get_textpage()
+                        text = textpage.get_text_range() or ""
+                        textpage.close()
+                    finally:
+                        page.close()
+                    if text.strip():
+                        pages.append({"page_number": i + 1, "text": text})
+            finally:
+                pdf.close()
+        except Exception as e:
+            logger.error(f"PDF extraction error (pdfium): {e}; falling back to pdfplumber")
+            return self._extract_pdf_pdfplumber(file_path)
+        return pages
+
+    def _extract_pdf_pdfplumber(self, file_path: str) -> list[dict]:
         import pdfplumber
         pages = []
         try:

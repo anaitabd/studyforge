@@ -6,9 +6,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     NVIDIA_API_KEY: str = ""
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_CHAT_MODEL: str = "deepseek-ai/deepseek-r1"
+    NVIDIA_CHAT_MODEL: str = "meta/llama-3.3-70b-instruct"
     NVIDIA_EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
-    CHROMA_PATH: str = "./chroma_db"
+    CHROMA_HOST: str = "chroma_server"
+    CHROMA_PORT: int = 8000
     R2_BUCKET: str = "studyforge"
     R2_ENDPOINT: str = "http://localhost:9000"
     R2_ACCESS_KEY: str = "minioadmin"

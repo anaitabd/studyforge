@@ -4,7 +4,7 @@ import { use, useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Flag, CheckCircle2, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useExam, useStartSession, useAutosave, useSubmitExam } from "@/lib/hooks/use-exams";
+import { useExam, useStartSession, useAutosave, useSubmitExam, getOptionsArray } from "@/lib/hooks/use-exams";
 import { type Question } from "@/lib/hooks/use-exams";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
@@ -173,11 +173,12 @@ export default function TakeExamPage({
         {/* Options */}
         {q.options && (
           <div className="space-y-2">
-            {q.options.map((opt, idx) => {
+            {getOptionsArray(q.options).map((opt, idx) => {
               const letter = ["A", "B", "C", "D"][idx] ?? String(idx + 1);
               const selected = answers[q.id] === letter;
               return (
                 <button
+                  type="button"
                   key={idx}
                   onClick={() => handleAnswer(q.id, letter)}
                   className={cn(
@@ -202,11 +203,23 @@ export default function TakeExamPage({
           </div>
         )}
 
+        {/* Fill in the blank */}
+        {q.type === "fill_blank" && (
+          <input
+            type="text"
+            value={answers[q.id] ?? ""}
+            onChange={(e) => handleAnswer(q.id, e.target.value)}
+            placeholder="Type your answer…"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        )}
+
         {/* True/False */}
         {q.type === "true_false" && !q.options && (
           <div className="flex gap-3">
             {["True", "False"].map((val) => (
               <button
+                type="button"
                 key={val}
                 onClick={() => handleAnswer(q.id, val)}
                 className={cn(
@@ -225,6 +238,7 @@ export default function TakeExamPage({
         {/* Navigation */}
         <div className="flex justify-between mt-6 pt-4 border-t border-slate-100">
           <button
+            type="button"
             onClick={() => setCurrent((c) => Math.max(0, c - 1))}
             disabled={current === 0}
             className="px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -232,6 +246,7 @@ export default function TakeExamPage({
             ← Previous
           </button>
           <button
+            type="button"
             onClick={() => setCurrent((c) => Math.min(total - 1, c + 1))}
             disabled={current === total - 1}
             className="px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"

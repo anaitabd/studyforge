@@ -101,6 +101,7 @@ export default function StudySetPage({
           </div>
 
           <FlipCard
+            key={current.id}
             front={current.front}
             back={current.back}
             sourcePassage={current.source_passage}
@@ -116,6 +117,7 @@ export default function StudySetPage({
           >
             {RATINGS.map(({ key, label, color }) => (
               <button
+                type="button"
                 key={key}
                 onClick={() => handleRate(key)}
                 disabled={reviewing || !flipped}

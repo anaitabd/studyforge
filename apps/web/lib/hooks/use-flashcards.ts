@@ -41,7 +41,7 @@ export function useDueCards(groupId: string, setId: string) {
   return useQuery<Flashcard[]>({
     queryKey: ["due-cards", setId],
     queryFn: async () => {
-      const res = await api.get(`/api/v1/groups/${groupId}/flashcards/${setId}/due`);
+      const res = await api.get(`/api/v1/groups/${groupId}/flashcards/${setId}/study`);
       return res.data.cards ?? res.data;
     },
     staleTime: 0,

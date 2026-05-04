@@ -1,52 +1,79 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Users, Trash2 } from "lucide-react";
-import { formatRelative } from "@/lib/utils";
-import { useDeleteGroup, type Group } from "@/lib/hooks/use-groups";
+import { useState } from "react";
+import { FileText, Users, Trash2, MoreVertical } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiDelete } from "@/lib/api";
 import toast from "react-hot-toast";
+import type { Group } from "@/lib/hooks/useApi";
 
 export function GroupCard({ group }: { group: Group }) {
-  const { mutate: deleteGroup, isPending } = useDeleteGroup();
+  const qc = useQueryClient();
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  function handleDelete(e: React.MouseEvent) {
-    e.preventDefault();
-    if (!confirm(`Delete "${group.name}"? This cannot be undone.`)) return;
-    deleteGroup(group.id, {
-      onSuccess: () => toast.success("Group deleted"),
-      onError: (err) => toast.error((err as Error).message),
-    });
-  }
+  const del = useMutation({
+    mutationFn: () => apiDelete(`/api/v1/groups/${group.id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["groups"] }); toast.success("Group deleted"); },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const initial = group.name.charAt(0).toUpperCase();
+  const color = group.color ?? "#2563EB";
 
   return (
     <Link
       href={`/groups/${group.id}`}
-      className="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-primary/40 transition-all group relative"
+      className="group relative block rounded-2xl border border-slate-200 bg-white p-5 hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden"
     >
-      <button
-        onClick={handleDelete}
-        disabled={isPending}
-        className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all"
-        aria-label="Delete group"
-      >
-        <Trash2 size={15} />
-      </button>
+      <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: color }} />
 
-      <h3 className="font-semibold text-slate-900 truncate pr-6">{group.name}</h3>
-      {group.description && (
-        <p className="text-sm text-slate-500 mt-1 line-clamp-2">{group.description}</p>
-      )}
+      <div className="flex items-start gap-3 pl-2">
+        <span
+          className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-white font-sora font-bold"
+          style={{ background: color }}
+        >
+          {initial}
+        </span>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-sora font-semibold text-primary truncate">{group.name}</h3>
+          {group.description && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{group.description}</p>}
+        </div>
+        {(group.my_role === "owner" || !group.my_role) && (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); setMenuOpen((v) => !v); }}
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-slate-100"
+            aria-label="Group actions"
+          >
+            <MoreVertical size={14} />
+          </button>
+        )}
+        {menuOpen && (
+          <div
+            className="absolute right-3 top-12 z-10 rounded-lg border border-slate-200 bg-white shadow-md py-1 min-w-[140px]"
+            onClick={(e) => e.preventDefault()}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setMenuOpen(false);
+                if (confirm(`Delete "${group.name}"?`)) del.mutate();
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-red-50 flex items-center gap-2"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          </div>
+        )}
+      </div>
 
-      <div className="flex items-center gap-4 mt-4 text-xs text-slate-400">
-        <span className="flex items-center gap-1">
-          <FileText size={13} />
-          {group.file_count} file{group.file_count !== 1 ? "s" : ""}
-        </span>
-        <span className="flex items-center gap-1">
-          <Users size={13} />
-          {group.member_count} member{group.member_count !== 1 ? "s" : ""}
-        </span>
-        <span className="ml-auto">{formatRelative(group.updated_at)}</span>
+      <div className="flex items-center gap-4 mt-4 text-[11px] text-slate-400 pl-2">
+        <span className="flex items-center gap-1"><FileText size={12} /> {group.file_count}</span>
+        <span className="flex items-center gap-1"><Users size={12} /> {group.member_count}</span>
+        <span className="ml-auto">{group.updated_at ? formatDistanceToNow(new Date(group.updated_at), { addSuffix: true }) : ""}</span>
       </div>
     </Link>
   );

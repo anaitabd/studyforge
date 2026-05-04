@@ -1,18 +1,23 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "@/lib/api";
+import api, { LONG_AI_REQUEST_TIMEOUT_MS } from "@/lib/api";
 
 export interface Question {
   id: string;
   type: "mcq_single" | "mcq_multiple" | "true_false" | "fill_blank";
   content: string;
-  options: string[] | null;
+  options: Record<string, string> | null;
   difficulty: string;
   order_index: number;
   correct_answer?: string;
   explanation?: string;
   source_passage?: string;
+}
+
+export function getOptionsArray(options: Record<string, string> | null | undefined): string[] {
+  if (!options || typeof options !== "object") return [];
+  return Object.values(options);
 }
 
 export interface Exam {
@@ -31,7 +36,7 @@ export interface Exam {
 export interface Correction {
   question_id: string;
   question: string;
-  options: string[] | null;
+  options: Record<string, string> | null;
   student_answer: string | null;
   correct_answer: string;
   is_correct: boolean;
@@ -80,7 +85,9 @@ export function useGenerateExam(groupId: string) {
       language: string;
       topic_focus?: string;
     }) => {
-      const res = await api.post(`/api/v1/groups/${groupId}/exams/generate`, data);
+      const res = await api.post(`/api/v1/groups/${groupId}/exams/generate`, data, {
+        timeout: LONG_AI_REQUEST_TIMEOUT_MS,
+      });
       return res.data as Exam;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["exams", groupId] }),

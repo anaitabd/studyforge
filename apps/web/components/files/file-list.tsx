@@ -1,67 +1,80 @@
 "use client";
 
-import { FileText, Loader2, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
-import { useDeleteFile, type GroupFile } from "@/lib/hooks/use-files";
-import { formatBytes, formatDate } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { FileText, FileSpreadsheet, Presentation, FileType, Trash2, MoreVertical } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiDelete } from "@/lib/api";
 import toast from "react-hot-toast";
+import { formatDistanceToNow } from "date-fns";
+import { FileStatusBadge } from "./file-status-badge";
+import { cn } from "@/lib/utils";
+import type { GroupFile } from "@/lib/hooks/useApi";
 
-const STATUS_CONFIG = {
-  uploading: { label: "Uploading", icon: Loader2, color: "text-blue-500", spin: true },
-  processing: { label: "Processing", icon: Loader2, color: "text-amber-500", spin: true },
-  ready: { label: "Ready", icon: CheckCircle2, color: "text-emerald-500", spin: false },
-  error: { label: "Error", icon: AlertCircle, color: "text-red-500", spin: false },
-};
+function iconFor(mime: string) {
+  if (mime.includes("pdf")) return { icon: FileType, color: "text-destructive" };
+  if (mime.includes("word")) return { icon: FileText, color: "text-accent" };
+  if (mime.includes("presentation")) return { icon: Presentation, color: "text-amber" };
+  return { icon: FileSpreadsheet, color: "text-slate-400" };
+}
 
-function StatusBadge({ status }: { status: GroupFile["status"] }) {
-  const cfg = STATUS_CONFIG[status];
-  return (
-    <span className={cn("flex items-center gap-1 text-xs font-medium", cfg.color)}>
-      <cfg.icon size={13} className={cfg.spin ? "animate-spin" : ""} />
-      {cfg.label}
-    </span>
-  );
+function formatBytes(b: number) {
+  if (!b) return "0 B";
+  const k = 1024;
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return `${(b / Math.pow(k, i)).toFixed(1)} ${["B", "KB", "MB", "GB"][i]}`;
 }
 
 export function FileList({ files, groupId }: { files: GroupFile[]; groupId: string }) {
-  const { mutate: deleteFile } = useDeleteFile(groupId);
+  const qc = useQueryClient();
+  const del = useMutation({
+    mutationFn: (id: string) => apiDelete(`/api/v1/groups/${groupId}/files/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["files", groupId] }); toast.success("File deleted"); },
+    onError: (e) => toast.error((e as Error).message),
+  });
 
   if (files.length === 0) {
     return <p className="text-sm text-slate-400 text-center py-8">No files yet. Upload one above.</p>;
   }
 
-  function handleDelete(file: GroupFile) {
-    if (!confirm(`Delete "${file.name}"?`)) return;
-    deleteFile(file.id, {
-      onSuccess: () => toast.success("File deleted"),
-      onError: (err) => toast.error((err as Error).message),
-    });
-  }
-
   return (
-    <ul className="divide-y divide-slate-100">
-      {files.map((file) => (
-        <li key={file.id} className="flex items-center gap-3 py-3 group">
-          <FileText size={18} className="shrink-0 text-slate-400" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
-            <p className="text-xs text-slate-400">
-              {formatBytes(file.size)} · {formatDate(file.created_at)}
-            </p>
-            {file.error_message && (
-              <p className="text-xs text-red-400 mt-0.5">{file.error_message}</p>
-            )}
-          </div>
-          <StatusBadge status={file.status} />
-          <button
-            onClick={() => handleDelete(file)}
-            className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all ml-2"
-            aria-label="Delete file"
-          >
-            <Trash2 size={14} />
-          </button>
-        </li>
-      ))}
+    <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {files.map((f) => <FileRow key={f.id} file={f} onDelete={() => { if (confirm(`Delete "${f.name}"?`)) del.mutate(f.id); }} />)}
     </ul>
+  );
+}
+
+function FileRow({ file, onDelete }: { file: GroupFile; onDelete: () => void }) {
+  const { icon: Icon, color } = iconFor(file.mime_type);
+  const [menu, setMenu] = useState(false);
+  return (
+    <li className="group flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
+      <Icon size={20} className={cn("shrink-0", color)} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-primary truncate" title={file.name}>{file.name}</p>
+        <p className="text-[11px] text-slate-400">
+          {formatBytes(file.size)}
+          {file.chunk_count ? ` · ${file.chunk_count} chunks` : ""}
+          {file.created_at && ` · ${formatDistanceToNow(new Date(file.created_at), { addSuffix: true })}`}
+        </p>
+        {file.error_message && <p className="text-[11px] text-destructive mt-0.5">{file.error_message}</p>}
+      </div>
+      <FileStatusBadge status={file.status} />
+      <div className="relative">
+        <button type="button" onClick={() => setMenu((v) => !v)} className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-slate-200" aria-label="Actions">
+          <MoreVertical size={14} />
+        </button>
+        {menu && (
+          <div className="absolute right-0 top-8 z-10 rounded-lg border border-slate-200 bg-white shadow-md py-1 min-w-[140px]">
+            <button
+              type="button"
+              onClick={() => { setMenu(false); onDelete(); }}
+              className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-red-50 flex items-center gap-2"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          </div>
+        )}
+      </div>
+    </li>
   );
 }

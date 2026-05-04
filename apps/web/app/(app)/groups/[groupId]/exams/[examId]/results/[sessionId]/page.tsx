@@ -1,125 +1,66 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
+import { ArrowLeft, Trophy } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, ArrowLeft, Trophy } from "lucide-react";
-import api from "@/lib/api";
-import { type GradingResult } from "@/lib/hooks/use-exams";
+import { apiGet } from "@/lib/api";
+import { CorrectionCard } from "@/components/exams/correction-card";
 import { cn } from "@/lib/utils";
 
-function useResults(groupId: string, examId: string, sessionId: string) {
-  return useQuery<GradingResult>({
-    queryKey: ["exam-results", sessionId],
-    queryFn: async () => {
-      const res = await api.get(
-        `/api/v1/groups/${groupId}/exams/${examId}/sessions/${sessionId}`
-      );
-      return res.data;
-    },
-  });
+interface ResultData {
+  session_id: string; score: number; total: number; percentage: number; time_spent_s: number;
+  corrections?: Array<Parameters<typeof CorrectionCard>[0]["correction"]>;
 }
 
-export default function ResultsPage({
-  params,
-}: {
-  params: Promise<{ groupId: string; examId: string; sessionId: string }>;
-}) {
+export default function ResultsPage({ params }: { params: Promise<{ groupId: string; examId: string; sessionId: string }> }) {
   const { groupId, examId, sessionId } = use(params);
-  const { data, isLoading } = useResults(groupId, examId, sessionId);
+  const { data, isLoading } = useQuery<ResultData>({
+    queryKey: ["exam-results", sessionId],
+    queryFn: () => apiGet(`/api/v1/groups/${groupId}/exams/${examId}/sessions/${sessionId}`),
+  });
+  const [filter, setFilter] = useState<"all" | "correct" | "incorrect">("all");
 
   if (isLoading || !data) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
+    return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" /></div>;
   }
 
   const mins = Math.floor(data.time_spent_s / 60);
   const secs = data.time_spent_s % 60;
-  const scoreColor =
-    data.percentage >= 80
-      ? "text-emerald-600"
-      : data.percentage >= 50
-      ? "text-amber-600"
-      : "text-red-600";
+  const grade = data.percentage >= 80 ? "Excellent" : data.percentage >= 60 ? "Good" : data.percentage >= 40 ? "Needs review" : "Keep going";
+  const scoreColor = data.percentage >= 80 ? "text-teal" : data.percentage >= 50 ? "text-amber" : "text-destructive";
+
+  const corrections = data.corrections ?? [];
+  const filtered = corrections.filter((c) => filter === "all" || (filter === "correct" ? c.is_correct : !c.is_correct));
 
   return (
-    <div className="max-w-2xl">
-      <div className="flex items-center gap-3 mb-8">
-        <Link href={`/groups/${groupId}/exams`} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
-          <ArrowLeft size={18} />
-        </Link>
-        <h1 className="font-semibold text-slate-900">Results</h1>
+    <div className="max-w-3xl mx-auto">
+      <Link href={`/groups/${groupId}/exams`} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary mb-6">
+        <ArrowLeft size={14} /> Back to exams
+      </Link>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 mb-8 text-center shadow-sm">
+        <Trophy size={36} className="mx-auto text-amber mb-3" />
+        <p className={cn("font-sora text-6xl font-bold", scoreColor)}>{data.percentage}%</p>
+        <p className="text-slate-500 mt-2">{data.score} / {data.total} correct · <span className="font-medium">{grade}</span></p>
+        <p className="text-xs text-slate-400 mt-1">Time: {mins}m {secs}s</p>
       </div>
 
-      {/* Score summary */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center mb-8 shadow-sm">
-        <Trophy size={32} className="mx-auto mb-3 text-amber-400" />
-        <p className={cn("text-5xl font-bold", scoreColor)}>{data.percentage}%</p>
-        <p className="text-slate-500 mt-2">
-          {data.score} / {data.total} correct
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Time: {mins}m {secs}s
-        </p>
-      </div>
-
-      {/* Per-question corrections */}
-      <div className="space-y-4">
-        {data.corrections.map((c, i) => (
-          <div
-            key={c.question_id}
-            className={cn(
-              "rounded-2xl border p-5",
-              c.is_correct ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40"
-            )}
+      <div className="flex items-center gap-2 mb-4 text-sm">
+        {(["all", "correct", "incorrect"] as const).map((f) => (
+          <button
+            type="button"
+            key={f}
+            onClick={() => setFilter(f)}
+            className={cn("px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors", filter === f ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
           >
-            <div className="flex items-start gap-3">
-              {c.is_correct ? (
-                <CheckCircle2 size={18} className="shrink-0 text-emerald-500 mt-0.5" />
-              ) : (
-                <XCircle size={18} className="shrink-0 text-red-500 mt-0.5" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-900">
-                  {i + 1}. {c.question}
-                </p>
-
-                <div className="mt-2 space-y-1 text-xs">
-                  {c.student_answer && (
-                    <p className={cn(c.is_correct ? "text-emerald-700" : "text-red-700")}>
-                      Your answer: <span className="font-medium">{c.student_answer}</span>
-                    </p>
-                  )}
-                  {!c.is_correct && (
-                    <p className="text-emerald-700">
-                      Correct answer: <span className="font-medium">{c.correct_answer}</span>
-                    </p>
-                  )}
-                </div>
-
-                {c.explanation && (
-                  <p className="mt-3 text-sm text-slate-600 leading-relaxed bg-white rounded-lg px-3 py-2 border border-slate-200">
-                    {c.explanation}
-                  </p>
-                )}
-
-                {c.source_passage && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-600">
-                      Source passage
-                    </summary>
-                    <p className="mt-1 text-xs text-slate-500 italic leading-relaxed border-l-2 border-slate-300 pl-3">
-                      {c.source_passage}
-                    </p>
-                  </details>
-                )}
-              </div>
-            </div>
-          </div>
+            {f} {f !== "all" && `(${corrections.filter((c) => f === "correct" ? c.is_correct : !c.is_correct).length})`}
+          </button>
         ))}
+      </div>
+
+      <div className="space-y-3">
+        {filtered.map((c) => <CorrectionCard key={c.question_id} correction={c} index={corrections.indexOf(c)} />)}
       </div>
     </div>
   );

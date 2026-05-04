@@ -187,8 +187,9 @@ async def generate_exam(
     if not all_chunks:
         raise ValueError("No indexed content found. The files may still be processing.")
 
-    # Sample proportionally — aim for ~2 chunks per question (enough context)
-    target_chunks = min(len(all_chunks), max(10, question_count * 2))
+    # Sample proportionally while keeping the LLM prompt bounded. Large PDFs can
+    # otherwise turn exam generation into a multi-minute request.
+    target_chunks = min(len(all_chunks), max(8, min(question_count + 4, 16)))
     sampled = _sample_chunks(all_chunks, target_chunks)
 
     schema = _SCHEMA_BY_TYPE.get(question_type, _MCQ_SINGLE_SCHEMA)
@@ -204,7 +205,7 @@ async def generate_exam(
     raw_questions = await ai_service.generate_structured_json(
         prompt=prompt,
         schema_description=schema,
-        max_tokens=8192,
+        max_tokens=min(8192, max(4096, question_count * 650)),
     )
 
     if not isinstance(raw_questions, list):
