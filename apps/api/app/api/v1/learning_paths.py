@@ -86,7 +86,10 @@ async def get_module(
     try:
         return await learning_path_service.get_module(db, path_id, module_id, current_user.id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        msg = str(e)
+        if "locked" in msg.lower():
+            raise HTTPException(status_code=403, detail=msg)
+        raise HTTPException(status_code=404, detail=msg)
 
 
 @router.post("/groups/{group_id}/learning-paths/{path_id}/modules/{module_id}/progress")
@@ -99,9 +102,15 @@ async def mark_module_complete(
     db: DB,
 ):
     await _require_group_member(group_id, current_user.id, db)
-    return await learning_path_service.mark_complete(
-        db, path_id, module_id, current_user.id, body.completed
-    )
+    try:
+        return await learning_path_service.mark_complete(
+            db, path_id, module_id, current_user.id, body.completed
+        )
+    except ValueError as e:
+        msg = str(e)
+        if "previous modules" in msg.lower():
+            raise HTTPException(status_code=409, detail=msg)
+        raise HTTPException(status_code=404, detail=msg)
 
 
 @router.delete("/groups/{group_id}/learning-paths/{path_id}", status_code=204)

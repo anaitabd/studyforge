@@ -385,6 +385,34 @@ async def get_module(db: AsyncSession, path_id: str, module_id: str, user_id: st
         )
     ).scalar_one_or_none() is not None
 
+    # Sequential unlock enforcement: users can only open the first incomplete
+    # module (or any already completed module).
+    ordered_modules = (
+        await db.execute(
+            select(LearningPathModule.id)
+            .where(LearningPathModule.path_id == path_id)
+            .order_by(LearningPathModule.order_index)
+        )
+    ).scalars().all()
+    completed_ids = set(
+        (
+            await db.execute(
+                select(LearningPathProgress.module_id).where(
+                    LearningPathProgress.path_id == path_id,
+                    LearningPathProgress.user_id == user_id,
+                )
+            )
+        ).scalars().all()
+    )
+    first_incomplete_idx = next(
+        (i for i, mid in enumerate(ordered_modules) if mid not in completed_ids),
+        len(ordered_modules),
+    )
+    module_idx = ordered_modules.index(module_id) if module_id in ordered_modules else -1
+    unlocked = module_idx != -1 and (module_id in completed_ids or module_idx <= first_incomplete_idx)
+    if not unlocked:
+        raise ValueError("Module is locked. Complete the previous module first.")
+
     return {
         "id": module.id,
         "path_id": module.path_id,
@@ -402,6 +430,41 @@ async def get_module(db: AsyncSession, path_id: str, module_id: str, user_id: st
 async def mark_complete(
     db: AsyncSession, path_id: str, module_id: str, user_id: str, completed: bool
 ) -> dict:
+    module = (
+        await db.execute(
+            select(LearningPathModule.id, LearningPathModule.order_index).where(
+                LearningPathModule.path_id == path_id,
+                LearningPathModule.id == module_id,
+            )
+        )
+    ).first()
+    if not module:
+        raise ValueError("Module not found")
+
+    if completed:
+        prior_modules = (
+            await db.execute(
+                select(LearningPathModule.id).where(
+                    LearningPathModule.path_id == path_id,
+                    LearningPathModule.order_index < module.order_index,
+                )
+            )
+        ).scalars().all()
+        if prior_modules:
+            completed_prior = set(
+                (
+                    await db.execute(
+                        select(LearningPathProgress.module_id).where(
+                            LearningPathProgress.path_id == path_id,
+                            LearningPathProgress.user_id == user_id,
+                            LearningPathProgress.module_id.in_(prior_modules),
+                        )
+                    )
+                ).scalars().all()
+            )
+            if len(completed_prior) != len(prior_modules):
+                raise ValueError("Cannot complete this module before previous modules are completed.")
+
     if completed:
         existing = (
             await db.execute(
