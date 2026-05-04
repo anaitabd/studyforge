@@ -6,7 +6,7 @@ const api = axios.create({
   timeout: 30000,
 });
 
-export const LONG_AI_REQUEST_TIMEOUT_MS = 180000;
+export const LONG_AI_REQUEST_TIMEOUT_MS = 600000;
 
 let _getToken: (() => Promise<string | null>) | null = null;
 let _onUnauthorized: (() => void) | null = null;
@@ -33,7 +33,7 @@ api.interceptors.response.use(
     const detail = detailRaw as { message?: string; error?: string } | string | undefined;
     const message =
       err.code === "ECONNABORTED"
-        ? "This AI request is taking longer than expected. Try fewer questions or fewer source files."
+        ? "This AI request is taking longer than expected. Please keep this window open; large learning paths can take several minutes. If it still times out, try fewer modules or fewer source files."
         : typeof detail === "string"
           ? detail
           : detail?.message ?? err.message ?? "Something went wrong";
