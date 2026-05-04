@@ -66,6 +66,50 @@ def _format_chunks(chunks: list[dict], char_cap: int = 400) -> str:
     return "\n\n".join(blocks)
 
 
+
+
+def _normalize_source_pages(pages: list[int] | None, fallback_chunks: list[dict] | None = None) -> list[int]:
+    normalized: list[int] = []
+    for p in pages or []:
+        if isinstance(p, int) and p > 0:
+            normalized.append(p)
+    if not normalized and fallback_chunks:
+        for c in fallback_chunks:
+            meta = c.get("metadata") or {}
+            page = meta.get("page_number")
+            if isinstance(page, int) and page > 0:
+                normalized.append(page)
+    # deterministic order + dedupe
+    return sorted(set(normalized))[:10]
+
+
+def _validate_module_progression(modules: list[dict]) -> list[dict]:
+    """Lightweight structural QA to reduce extreme difficulty jumps and empty modules."""
+    out: list[dict] = []
+    prev_minutes = None
+    for i, m in enumerate(modules):
+        mm = dict(m)
+        minutes = int(mm.get("estimated_minutes") or 10)
+        minutes = max(5, min(25, minutes))
+        if prev_minutes is not None and minutes > prev_minutes * 2:
+            minutes = min(25, prev_minutes + 10)
+        mm["estimated_minutes"] = minutes
+
+        title = str(mm.get("title") or f"Module {i + 1}").strip()
+        mm["title"] = title[:255]
+
+        objectives = [str(o).strip() for o in (mm.get("objectives") or []) if str(o).strip()]
+        if not objectives:
+            objectives = [f"Explain the core ideas in {title}"]
+        mm["objectives"] = objectives[:4]
+
+        concepts = [str(c).strip() for c in (mm.get("key_concepts") or []) if str(c).strip()]
+        mm["key_concepts"] = concepts[:6]
+
+        out.append(mm)
+        prev_minutes = minutes
+    return out
+
 def _build_outline_prompt(
     corpus: str, module_count: int, language: str, title_hint: str | None
 ) -> str:
@@ -144,7 +188,7 @@ async def generate_path(
     if not isinstance(outline, dict) or not isinstance(outline.get("modules"), list):
         raise ValueError("AI returned unexpected format for path outline.")
 
-    outline_modules = outline["modules"][:module_count]
+    outline_modules = _validate_module_progression(outline["modules"][:module_count])
     logger.info(
         f"Outline ready: {len(outline_modules)} modules. "
         f"Fetching per-module content (max 3 in parallel)."
@@ -171,11 +215,14 @@ async def generate_path(
         mod_corpus = _format_chunks(mod_chunks[:6], char_cap=500)
         async with sem:
             try:
-                return await ai_service.generate_structured_json(
+                payload = await ai_service.generate_structured_json(
                     prompt=_build_module_content_prompt(m, mod_corpus, language),
                     schema_description=_MODULE_CONTENT_SCHEMA,
                     max_tokens=1536,
                 )
+                if isinstance(payload, dict):
+                    payload["_retrieved_chunks"] = mod_chunks[:6]
+                return payload
             except Exception as e:
                 logger.warning(f"Module content generation failed for '{m.get('title')}': {e}")
                 return e
@@ -193,7 +240,7 @@ async def generate_path(
         md = placeholder
         if isinstance(content, dict):
             md = str(content.get("content_markdown") or "").strip() or placeholder
-        raw["modules"].append({**m, "content_markdown": md})
+        raw["modules"].append({**m, "content_markdown": md, "_retrieved_chunks": [] if not isinstance(content, dict) else content.get("_retrieved_chunks", [])})
 
     path_id = str(uuid.uuid4())
     path = LearningPath(
@@ -223,7 +270,7 @@ async def generate_path(
             key_concepts=list(m.get("key_concepts") or []),
             content_markdown=str(m.get("content_markdown") or ""),
             estimated_minutes=int(m.get("estimated_minutes") or 10),
-            source_pages=[p for p in (m.get("source_pages") or []) if isinstance(p, int)],
+            source_pages=_normalize_source_pages(m.get("source_pages"), m.get("_retrieved_chunks") or []),
         )
         db.add(module)
         modules_out.append({
