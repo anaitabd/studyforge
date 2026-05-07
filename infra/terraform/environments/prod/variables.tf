@@ -13,3 +13,5 @@ variable "db_name" { type = string default = "studyforge" }
 variable "db_instance_class" { type = string default = "db.t4g.micro" }
 variable "secret_values" { type = map(string) sensitive = true }
 variable "ssm_parameters" { type = map(string) sensitive = true }
+
+variable "cicd_principal_arn" { type = string }
