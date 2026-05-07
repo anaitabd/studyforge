@@ -1,7 +1,19 @@
+from enum import Enum
+from typing import Any
+
+from pydantic import AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class AppEnv(str, Enum):
+    local = "local"
+    dev = "dev"
+    staging = "staging"
+    prod = "prod"
+
+
 class Settings(BaseSettings):
+    APP_ENV: AppEnv = AppEnv.local
     DATABASE_URL: str = "postgresql+asyncpg://studyforge:studyforge@localhost:5432/studyforge"
     REDIS_URL: str = "redis://localhost:6379/0"
     NVIDIA_API_KEY: str = ""
@@ -40,6 +52,7 @@ class Settings(BaseSettings):
     STRIPE_PERSONAL_ANNUAL_PRICE_ID: str = ""
     SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URLS: list[AnyHttpUrl] = Field(default_factory=list)
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
@@ -50,6 +63,30 @@ class Settings(BaseSettings):
     TASK_EVENTBRIDGE_EXAM_DEADLINE_RULE: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("FRONTEND_URLS", mode="before")
+    @classmethod
+    def parse_frontend_urls(cls, value: Any) -> list[str] | Any:
+        if value in (None, "", []):
+            return []
+        if isinstance(value, str):
+            return [u.strip() for u in value.split(",") if u.strip()]
+        return value
+
+    @property
+    def cors_origins(self) -> list[str]:
+        explicit = [str(url).rstrip("/") for url in self.FRONTEND_URLS]
+        if explicit:
+            return sorted(set(explicit))
+
+        by_env = {
+            AppEnv.local: ["http://localhost:3000", "http://127.0.0.1:3000"],
+            AppEnv.dev: ["https://dev.studyforge.app"],
+            AppEnv.staging: ["https://staging.studyforge.app"],
+            AppEnv.prod: ["https://studyforge.app"],
+        }
+        fallback = str(self.FRONTEND_URL).rstrip("/")
+        return sorted(set([fallback, *by_env[self.APP_ENV]]))
 
 
 settings = Settings()
