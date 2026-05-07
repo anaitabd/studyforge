@@ -9,3 +9,5 @@ db_username = "studyforge"
 db_password = "replace-me"
 secret_values = { DATABASE_URL = "replace-me", JWT_SECRET = "replace-me" }
 ssm_parameters = { OPENAI_API_KEY = "replace-me" }
+
+cicd_principal_arn = "arn:aws:iam::123456789012:root"
