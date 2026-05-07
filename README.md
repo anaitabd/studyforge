@@ -66,11 +66,20 @@ S3_AUTO_CREATE_BUCKET=true
 S3_SERVER_SIDE_ENCRYPTION=
 S3_KMS_KEY_ID=
 
+# AI provider selection
+AI_PROVIDER=nvidia  # nvidia or bedrock
+
 # NVIDIA NIM — get your key at https://build.nvidia.com
 NVIDIA_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxx
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 NVIDIA_CHAT_MODEL=deepseek-ai/deepseek-r1
 NVIDIA_EMBED_MODEL=nvidia/nv-embedqa-e5-v5
+
+# AWS Bedrock (optional alternative to NVIDIA)
+# Use IAM role (ECS/EKS/EC2/Lambda) or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
+AWS_REGION=us-east-1
+BEDROCK_CHAT_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+BEDROCK_EMBED_MODEL_ID=amazon.titan-embed-text-v2:0
 
 # Clerk — Clerk dashboard → API Keys
 CLERK_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxx
@@ -92,6 +101,12 @@ TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 ```
+
+#### Bedrock authentication notes
+
+- **Preferred**: attach an IAM role to your runtime (EC2/ECS/EKS/Lambda) with `bedrock:InvokeModel` permissions for the configured model IDs.
+- **Local/dev alternative**: export `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional `AWS_SESSION_TOKEN`.
+- Ensure `AWS_REGION` matches the region where your Bedrock models are enabled.
 
 ### 3 — Fill in `apps/web/.env.local`
 
