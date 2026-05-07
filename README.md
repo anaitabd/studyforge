@@ -377,3 +377,76 @@ Key endpoints:
 
 **Frontend shows blank page after sign-in**  
 → Confirm `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` starts with `pk_test_` (not the secret key).
+
+---
+
+## Deployment environment profiles (`APP_ENV`)
+
+The API now supports explicit environment profiles via `APP_ENV`:
+
+- `local`
+- `dev`
+- `staging`
+- `prod`
+
+If `FRONTEND_URLS` is not set, CORS origins default by profile. You can override with:
+
+```env
+FRONTEND_URLS=https://app.example.com,https://admin.example.com
+```
+
+`FRONTEND_URLS` is validated as a comma-separated list of absolute HTTP(S) URLs.
+
+## Launch configuration by runtime
+
+### ECS / long-running container
+
+Use Gunicorn with Uvicorn workers (already set as default in `apps/api/Dockerfile`):
+
+```bash
+gunicorn -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8000 app.main:app
+```
+
+Health checks:
+
+- Liveness: `GET /health`
+- Readiness: `GET /health/ready` (returns `ready: true` after warmup)
+
+### AWS Lambda (API Gateway + ASGI)
+
+Use handler:
+
+```text
+app.lambda_handlers.asgi_handler.handler
+```
+
+The ASGI adapter is initialized at import time to reduce cold-start overhead.
+
+## Environment variables by deployment target
+
+### Local development
+
+```env
+APP_ENV=local
+FRONTEND_URL=http://localhost:3000
+# Optional CORS override:
+# FRONTEND_URLS=http://localhost:3000,http://127.0.0.1:3000
+S3_ENDPOINT_URL=http://localhost:9000
+S3_AUTO_CREATE_BUCKET=true
+```
+
+### AWS (ECS/Lambda)
+
+```env
+APP_ENV=prod
+FRONTEND_URL=https://studyforge.app
+# Recommended explicit allow-list:
+FRONTEND_URLS=https://studyforge.app
+S3_BUCKET=your-prod-bucket
+S3_REGION=us-east-1
+S3_SERVER_SIDE_ENCRYPTION=aws:kms
+S3_KMS_KEY_ID=arn:aws:kms:...
+# Leave S3_ENDPOINT_URL unset in AWS
+```
+
+Structured logs are emitted in JSON format (timestamp, level, logger, message, environment), which is suitable for CloudWatch log ingestion and filtering.
