@@ -23,3 +23,36 @@
 - Create incident timeline with UTC timestamps.
 - Add permanent fix ticket and alarm threshold tuning tasks.
 - Record customer impact and comms follow-up.
+
+---
+
+## Pre-deploy checklist (pull and run in AWS)
+
+Run this from repo root before your first AWS deploy:
+
+```bash
+./scripts/aws-preflight.sh
+```
+
+Then complete these steps:
+
+1. **Provision infra**
+   - `cd infra/terraform/environments/<env>`
+   - `terraform init && terraform plan -var-file=terraform.tfvars && terraform apply -var-file=terraform.tfvars`
+2. **Set runtime secrets** in Secrets Manager / SSM
+   - Clerk keys
+   - AI provider credentials (NVIDIA or Bedrock)
+   - Notification credentials (SendGrid/Twilio) if used
+3. **Build and push containers**
+   - Build `apps/api` and `apps/web` images
+   - Push images to ECR (or your chosen registry)
+4. **Deploy workloads**
+   - Update ECS task definitions with new image tags and env/secrets refs
+   - Roll ECS services for API and any worker workloads
+5. **Run smoke tests**
+   - `/docs` endpoint availability for API
+   - Auth flow
+   - File upload + retrieval path
+   - Queue processing happy path
+6. **Turn on alarm watch**
+   - Monitor CloudWatch logs and alarms for 30 minutes post deploy
