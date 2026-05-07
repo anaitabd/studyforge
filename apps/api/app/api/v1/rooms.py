@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -71,34 +71,57 @@ async def create_room(body: CreateRoomRequest, current_user: CurrentUser, db: DB
 
 
 @router.get("/group/{group_id}")
-async def list_rooms(group_id: str, current_user: CurrentUser, db: DB):
+async def list_rooms(
+    group_id: str,
+    current_user: CurrentUser,
+    db: DB,
+    limit: int = 50,
+    offset: int = 0,
+):
     await _require_group_member(group_id, current_user.id, db)
 
-    result = await db.execute(
-        select(StudyRoom)
-        .where(StudyRoom.group_id == group_id, StudyRoom.is_active == True)  # noqa: E712
-        .order_by(StudyRoom.created_at.desc())
+    online_expr = func.coalesce(
+        func.sum(case((RoomMember.is_online.is_(True), 1), else_=0)), 0
     )
-    rooms = result.scalars().all()
+    total_expr = func.count(RoomMember.id)
 
-    output = []
-    for r in rooms:
-        members_result = await db.execute(
-            select(RoomMember).where(RoomMember.room_id == r.id)
+    result = await db.execute(
+        select(
+            StudyRoom,
+            total_expr.label("member_count"),
+            online_expr.label("online_count"),
         )
-        members = members_result.scalars().all()
-        output.append({
+        .outerjoin(RoomMember, RoomMember.room_id == StudyRoom.id)
+        .where(StudyRoom.group_id == group_id, StudyRoom.is_active.is_(True))
+        .group_by(StudyRoom.id)
+        .order_by(StudyRoom.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = result.all()
+
+    output = [
+        {
             "id": r.id,
             "group_id": r.group_id,
             "name": r.name,
             "invite_code": r.invite_code,
             "is_active": r.is_active,
             "created_at": r.created_at.isoformat(),
-            "member_count": len(members),
-            "online_count": sum(1 for m in members if m.is_online),
-        })
+            "member_count": int(member_count or 0),
+            "online_count": int(online_count or 0),
+        }
+        for r, member_count, online_count in rows
+    ]
 
-    return {"rooms": output}
+    total_result = await db.execute(
+        select(func.count(StudyRoom.id)).where(
+            StudyRoom.group_id == group_id, StudyRoom.is_active.is_(True)
+        )
+    )
+    total = int(total_result.scalar_one() or 0)
+
+    return {"rooms": output, "total": total, "has_more": offset + len(output) < total}
 
 
 @router.post(

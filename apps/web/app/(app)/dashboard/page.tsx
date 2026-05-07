@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
-import { FolderOpen, FileText, GraduationCap, BookOpen, Plus, Clock, type LucideIcon } from "lucide-react";
+import { FolderOpen, FileText, GraduationCap, BookOpen, Plus, Clock, ArrowRight, type LucideIcon } from "lucide-react";
 import { useGroups } from "@/lib/hooks/useApi";
 import { GroupCard } from "@/components/groups/group-card";
+import { useContinueLearning, type ContinueLearningItem } from "@/lib/hooks/use-continue-learning";
 
 export default function DashboardPage() {
   const { user } = useUser();
   const { data: groups, isLoading } = useGroups();
+  const { data: continueItems, isLoading: continueLoading } = useContinueLearning();
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -38,6 +40,29 @@ export default function DashboardPage() {
 
       <section>
         <div className="flex items-center justify-between mb-4">
+          <h2 className="font-sora text-xl font-semibold text-primary flex items-center gap-2">
+            <Clock size={18} className="text-accent" /> Continue learning
+          </h2>
+        </div>
+        {continueLoading ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[0, 1, 2].map((i) => <div key={i} className="h-32 rounded-xl bg-slate-100 animate-pulse" />)}
+          </div>
+        ) : (continueItems ?? []).length === 0 ? (
+          <div className="rounded-2xl border-2 border-dashed border-slate-200 p-8 text-center">
+            <p className="text-slate-500 text-sm">
+              No paths in progress. Open a group and generate a learning path to start.
+            </p>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(continueItems ?? []).map((it) => <ContinueCard key={it.path_id} item={it} />)}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between mb-4">
           <h2 className="font-sora text-xl font-semibold text-primary">Recent groups</h2>
           <Link href="/groups" className="text-sm text-accent hover:underline font-medium">View all →</Link>
         </div>
@@ -58,15 +83,6 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
-
-      <section>
-        <h2 className="font-sora text-xl font-semibold text-primary mb-4 flex items-center gap-2">
-          <Clock size={18} className="text-amber" /> Upcoming
-        </h2>
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-          No exams due in the next 48 hours. You&apos;re all caught up. 🎉
-        </div>
-      </section>
     </div>
   );
 }
@@ -80,5 +96,45 @@ function StatCard({ icon: Icon, label, value, color }: { icon: LucideIcon; label
       </div>
       <p className="font-sora text-3xl font-bold text-primary">{value}</p>
     </div>
+  );
+}
+
+function ContinueCard({ item }: { item: ContinueLearningItem }) {
+  const href = item.next_module_id
+    ? `/groups/${item.group_id}/learning-paths/${item.path_id}/modules/${item.next_module_id}`
+    : `/groups/${item.group_id}/learning-paths/${item.path_id}`;
+  const pct = Math.min(100, Math.max(0, item.progress_pct));
+  const completed = item.completed_modules >= item.module_count && item.module_count > 0;
+  return (
+    <Link
+      href={href}
+      className="group rounded-xl border border-slate-200 bg-white p-4 hover:border-accent hover:shadow-sm transition flex flex-col gap-3"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">{item.group_name}</p>
+          <h3 className="font-sora font-semibold text-primary text-sm leading-snug line-clamp-2">{item.title}</h3>
+        </div>
+        <ArrowRight size={16} className="text-slate-400 group-hover:text-accent shrink-0" />
+      </div>
+      <div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+          <span>{item.completed_modules}/{item.module_count} modules</span>
+          <span className="font-medium">{pct}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className={`h-full ${completed ? "bg-teal" : "bg-accent"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+      {item.next_module_title && (
+        <p className="text-xs text-slate-600 line-clamp-1">
+          <span className="text-slate-400">Resume next: </span>
+          {item.next_module_title}
+        </p>
+      )}
+    </Link>
   );
 }

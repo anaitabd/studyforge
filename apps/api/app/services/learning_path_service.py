@@ -561,6 +561,126 @@ async def mark_complete(
     }
 
 
+async def get_continue_learning(
+    db: AsyncSession, user_id: str, limit: int = 6
+) -> list[dict]:
+    """In-progress learning paths for the user, ordered by most recent activity.
+
+    A path is "in progress" if the user is a member of its group AND not all of
+    its modules are completed. Untouched paths come last; half-done paths first.
+    """
+    from app.models.group import Group, GroupMember
+
+    member_group_ids = (
+        await db.execute(
+            select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+        )
+    ).scalars().all()
+    if not member_group_ids:
+        return []
+
+    paths = (
+        await db.execute(
+            select(LearningPath, Group.name)
+            .join(Group, Group.id == LearningPath.group_id)
+            .where(LearningPath.group_id.in_(member_group_ids))
+        )
+    ).all()
+    if not paths:
+        return []
+
+    path_ids = [p.id for p, _ in paths]
+
+    module_rows = (
+        await db.execute(
+            select(
+                LearningPathModule.id,
+                LearningPathModule.path_id,
+                LearningPathModule.order_index,
+                LearningPathModule.title,
+            )
+            .where(LearningPathModule.path_id.in_(path_ids))
+            .order_by(LearningPathModule.path_id, LearningPathModule.order_index)
+        )
+    ).all()
+
+    modules_by_path: dict[str, list[tuple[str, int, str]]] = {}
+    for mid, pid, oi, title in module_rows:
+        modules_by_path.setdefault(pid, []).append((mid, int(oi), title))
+
+    progress_rows = (
+        await db.execute(
+            select(
+                LearningPathProgress.path_id,
+                LearningPathProgress.module_id,
+                LearningPathProgress.completed_at,
+            ).where(
+                LearningPathProgress.path_id.in_(path_ids),
+                LearningPathProgress.user_id == user_id,
+            )
+        )
+    ).all()
+    completed_by_path: dict[str, set[str]] = {}
+    last_activity_by_path: dict[str, str | None] = {}
+    for pid, mid, ts in progress_rows:
+        completed_by_path.setdefault(pid, set()).add(mid)
+        iso = ts.isoformat() if ts else None
+        prev = last_activity_by_path.get(pid)
+        if iso and (prev is None or iso > prev):
+            last_activity_by_path[pid] = iso
+
+    items: list[dict] = []
+    for path, group_name in paths:
+        modules = modules_by_path.get(path.id) or []
+        total = len(modules)
+        if total == 0:
+            continue
+        completed_ids = completed_by_path.get(path.id) or set()
+        done = len(completed_ids)
+        if done >= total:
+            continue  # fully completed — exclude from "continue learning"
+        next_module = next(
+            (m for m in modules if m[0] not in completed_ids), None
+        )
+        items.append(
+            {
+                "path_id": path.id,
+                "group_id": path.group_id,
+                "group_name": group_name,
+                "title": path.title,
+                "summary": path.summary,
+                "module_count": total,
+                "completed_modules": done,
+                "progress_pct": round(100.0 * done / total) if total else 0,
+                "next_module_id": next_module[0] if next_module else None,
+                "next_module_title": next_module[2] if next_module else None,
+                "last_activity_at": last_activity_by_path.get(path.id),
+                "created_at": path.created_at.isoformat(),
+            }
+        )
+
+    # Sort: in-progress (done > 0) first, then by most-recent activity (or creation) descending.
+    def _sort_key(it: dict) -> tuple[int, str]:
+        in_progress = 0 if it["completed_modules"] > 0 else 1
+        recency = it["last_activity_at"] or it["created_at"] or ""
+        # ISO-8601 strings sort lexicographically; negate by reversing later via lambda.
+        return (in_progress, recency)
+
+    items.sort(key=_sort_key)
+    # Within each group (in-progress / untouched) we want newest first.
+    in_progress = sorted(
+        [i for i in items if i["completed_modules"] > 0],
+        key=lambda it: it["last_activity_at"] or it["created_at"] or "",
+        reverse=True,
+    )
+    untouched = sorted(
+        [i for i in items if i["completed_modules"] == 0],
+        key=lambda it: it["created_at"] or "",
+        reverse=True,
+    )
+    return (in_progress + untouched)[:limit]
+
+
 async def delete_path(db: AsyncSession, group_id: str, path_id: str, user_id: str) -> None:
     path = (
         await db.execute(

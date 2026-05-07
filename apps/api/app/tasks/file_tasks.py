@@ -121,6 +121,11 @@ async def _process_file_async(file_id: str, r2_key: str, mime_type: str, AsyncSe
 
         # 6+7. Embed and upsert in streaming batches to bound memory.
         EMBED_BATCH = 96
+        # Commit progress every Nth batch to avoid 1 transaction per batch
+        # (used to be ~11 round-trips for a 1k-chunk PDF).
+        COMMIT_EVERY_N_BATCHES = 5
+        indexed = 0
+        batch_idx = 0
         for i in range(0, len(chunks), EMBED_BATCH):
             sub = chunks[i : i + EMBED_BATCH]
             sub_texts = [c["text"] for c in sub]
@@ -128,9 +133,19 @@ async def _process_file_async(file_id: str, r2_key: str, mime_type: str, AsyncSe
             for c, e in zip(sub, sub_embs):
                 c["embedding"] = e
             vector_store.upsert_chunks(group_id, sub)
+            indexed += len(sub)
+            batch_idx += 1
             for c in sub:
                 c.pop("embedding", None)
             del sub_texts, sub_embs
+            if batch_idx % COMMIT_EVERY_N_BATCHES == 0:
+                async with AsyncSessionLocal() as db:
+                    await db.execute(
+                        update(File)
+                        .where(File.id == file_id)
+                        .values(chunk_count=indexed)
+                    )
+                    await db.commit()
 
         # 8. Update file status → ready
         async with AsyncSessionLocal() as db:

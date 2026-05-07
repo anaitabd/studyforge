@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import typography from "@tailwindcss/typography";
 
 const config: Config = {
   content: [
@@ -38,6 +39,6 @@ const config: Config = {
       borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 2px)" },
     },
   },
-  plugins: [],
+  plugins: [typography],
 };
 export default config;

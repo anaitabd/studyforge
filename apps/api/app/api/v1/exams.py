@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -149,50 +149,77 @@ async def list_exams(
     group_id: str,
     current_user: CurrentUser,
     db: DB,
+    limit: int = 50,
+    offset: int = 0,
 ):
     await _require_group_member(group_id, current_user.id, db)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
 
     result = await db.execute(
         select(Exam)
         .where(Exam.group_id == group_id)
         .order_by(Exam.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     exams = result.scalars().all()
+    exam_ids = [e.id for e in exams]
 
-    exam_list = []
-    for exam in exams:
-        q_result = await db.execute(
-            select(Question).where(Question.exam_id == exam.id)
-        )
-        question_count = len(q_result.scalars().all())
+    if exam_ids:
+        # Question counts in one query.
+        q_rows = (await db.execute(
+            select(Question.exam_id, func.count(Question.id))
+            .where(Question.exam_id.in_(exam_ids))
+            .group_by(Question.exam_id)
+        )).all()
+        question_count_by_exam = {eid: int(c) for eid, c in q_rows}
 
-        # Include the student's own session summary if it exists
-        session_result = await db.execute(
-            select(ExamSession).where(
-                ExamSession.exam_id == exam.id,
+        # Per-user submitted sessions in one query.
+        s_rows = (await db.execute(
+            select(
+                ExamSession.exam_id,
+                func.count(ExamSession.id),
+                func.max(ExamSession.score),
+            )
+            .where(
+                ExamSession.exam_id.in_(exam_ids),
                 ExamSession.user_id == current_user.id,
                 ExamSession.submitted_at.is_not(None),
             )
-        )
-        my_sessions = session_result.scalars().all()
+            .group_by(ExamSession.exam_id)
+        )).all()
+        session_stats_by_exam = {
+            eid: {"attempts": int(attempts), "best_score": best}
+            for eid, attempts, best in s_rows
+        }
+    else:
+        question_count_by_exam = {}
+        session_stats_by_exam = {}
 
-        exam_list.append({
+    exam_list = [
+        {
             "id": exam.id,
             "title": exam.title,
             "status": exam.status,
             "config": exam.config,
-            "question_count": question_count,
+            "question_count": question_count_by_exam.get(exam.id, 0),
             "attempt_limit": exam.attempt_limit,
             "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "ends_at": exam.ends_at.isoformat() if exam.ends_at else None,
             "created_at": exam.created_at.isoformat(),
-            "my_attempts": len(my_sessions),
-            "my_best_score": (
-                max((s.score for s in my_sessions if s.score is not None), default=None)
-            ),
-        })
+            "my_attempts": session_stats_by_exam.get(exam.id, {}).get("attempts", 0),
+            "my_best_score": session_stats_by_exam.get(exam.id, {}).get("best_score"),
+        }
+        for exam in exams
+    ]
 
-    return {"exams": exam_list}
+    total_result = await db.execute(
+        select(func.count(Exam.id)).where(Exam.group_id == group_id)
+    )
+    total = int(total_result.scalar_one() or 0)
+
+    return {"exams": exam_list, "total": total, "has_more": offset + len(exam_list) < total}
 
 
 @router.get(

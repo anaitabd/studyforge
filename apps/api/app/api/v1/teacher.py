@@ -1,14 +1,10 @@
-import json
 import logging
 from typing import Annotated
 
-import redis
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.chat import ChatMessage
@@ -17,9 +13,6 @@ from app.models.file import File
 from app.models.group import Group, GroupMember
 from app.models.notification import ReadingEvent
 from app.models.user import User
-from app.tasks.slide_tasks import generate_slides_task
-
-_redis = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/teacher", tags=["teacher"])
@@ -212,47 +205,3 @@ async def get_group_analytics(
     }
 
 
-class SlideGenRequest(BaseModel):
-    file_ids: list[str] = Field(..., min_length=1)
-    style: str = "academic"
-    course_name: str
-    professor_name: str = ""
-    language: str = "en"
-
-
-@router.post("/groups/{group_id}/slides/generate")
-async def generate_slides(
-    group_id: str,
-    body: SlideGenRequest,
-    current_user: CurrentUser,
-    db: DB,
-):
-    membership_result = await db.execute(
-        select(GroupMember).where(
-            GroupMember.group_id == group_id,
-            GroupMember.user_id == current_user.id,
-        )
-    )
-    membership = membership_result.scalar_one_or_none()
-    if not membership or membership.role not in ("owner", "teacher"):
-        raise HTTPException(status_code=403, detail="Teacher or owner access required")
-
-    config = {
-        "style": body.style,
-        "course_name": body.course_name,
-        "professor_name": body.professor_name,
-        "language": body.language,
-    }
-    task = generate_slides_task.delay(group_id, body.file_ids, config, current_user.id)
-    return {"task_id": task.id, "estimated_seconds": 45}
-
-
-@router.get("/tasks/{task_id}")
-async def get_task_status(task_id: str, current_user: CurrentUser):
-    raw = _redis.get(f"slide_task:{task_id}")
-    if not raw:
-        return {"status": "pending"}
-    data = json.loads(raw)
-    if data.get("user_id") and data["user_id"] != current_user.id:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {k: v for k, v in data.items() if k != "user_id"}

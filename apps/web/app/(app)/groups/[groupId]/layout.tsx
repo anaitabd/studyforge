@@ -3,7 +3,7 @@
 import { use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, ArrowLeft } from "lucide-react";
+import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, Presentation, ArrowLeft } from "lucide-react";
 import { useGroup } from "@/lib/hooks/useApi";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const TABS = [
   { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "", label: "Files", icon: FileText },
   { key: "learning-paths", label: "Learning paths", icon: Map },
+  { key: "slides", label: "Slides", icon: Presentation },
   { key: "exams", label: "Exams", icon: GraduationCap },
   { key: "flashcards", label: "Flashcards", icon: BookOpen },
   { key: "members", label: "Members", icon: Users },

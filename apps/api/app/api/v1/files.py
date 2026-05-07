@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -45,14 +45,24 @@ async def list_files(
     group_id: str,
     current_user: CurrentUser,
     db: DB,
+    limit: int = 50,
+    offset: int = 0,
 ):
     await verify_group_member(group_id, current_user.id, db)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     result = await db.execute(
         select(File)
         .where(File.group_id == group_id)
         .order_by(File.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     files = result.scalars().all()
+    total_result = await db.execute(
+        select(func.count(File.id)).where(File.group_id == group_id)
+    )
+    total = int(total_result.scalar_one() or 0)
     return {
         "files": [
             {
@@ -69,7 +79,9 @@ async def list_files(
                 "created_at": f.created_at.isoformat(),
             }
             for f in files
-        ]
+        ],
+        "total": total,
+        "has_more": offset + len(files) < total,
     }
 
 
