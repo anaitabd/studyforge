@@ -11,7 +11,7 @@ AI-powered educational RAG platform — upload course materials, chat with them,
 | AI | NVIDIA NIM (DeepSeek-R1 LLM + nv-embedqa-e5-v5 embeddings), ChromaDB |
 | Auth | Clerk (JWT, webhooks) |
 | Queue | Celery + Redis |
-| Storage | MinIO (local) / Cloudflare R2 (production) |
+| Storage | Amazon S3 (primary), MinIO/R2 compatible |
 | Database | PostgreSQL 16 |
 | Notifications | SendGrid (email) + Twilio (WhatsApp) |
 
@@ -53,10 +53,18 @@ cp apps/web/.env.local.example apps/web/.env.local   # if it exists, otherwise s
 # Database / Redis / Storage (defaults match docker-compose)
 DATABASE_URL=postgresql+asyncpg://studyforge:studyforge@localhost:5432/studyforge
 REDIS_URL=redis://localhost:6379/0
-R2_BUCKET=studyforge
-R2_ENDPOINT=http://localhost:9000
+S3_BUCKET=studyforge
+S3_REGION=us-east-1
+# Optional for local emulators (MinIO/LocalStack). Omit in AWS.
+S3_ENDPOINT_URL=http://localhost:9000
+# Optional for local emulators using static keys (legacy compatibility path)
 R2_ACCESS_KEY=minioadmin
 R2_SECRET_KEY=minioadmin
+# Optional: auto-create bucket only in local dev
+S3_AUTO_CREATE_BUCKET=true
+# Optional: "AES256" (SSE-S3) or "aws:kms" (SSE-KMS)
+S3_SERVER_SIDE_ENCRYPTION=
+S3_KMS_KEY_ID=
 
 # NVIDIA NIM — get your key at https://build.nvidia.com
 NVIDIA_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxx
@@ -191,6 +199,39 @@ After the stack is up, run migrations once:
 ```bash
 docker compose exec api alembic upgrade head
 ```
+
+---
+
+## Storage migration: R2/MinIO -> S3 envs
+
+StudyForge now uses `S3_*` variables as the primary configuration path. Legacy `R2_*` variables remain supported only as a temporary compatibility fallback for local setups.
+
+### New canonical variables
+
+- `S3_BUCKET` (required)
+- `S3_REGION` (required in AWS; default is `us-east-1` in local dev)
+- `S3_ENDPOINT_URL` (optional; for MinIO/LocalStack/local emulation only)
+- `S3_KMS_KEY_ID` (optional; used with SSE-KMS)
+- `S3_SERVER_SIDE_ENCRYPTION` (optional: `AES256` or `aws:kms`)
+- `S3_AUTO_CREATE_BUCKET` (optional; set `true` only for local development)
+
+### Backward compatibility (temporary)
+
+- `R2_BUCKET` and `R2_ENDPOINT` are still read if `S3_BUCKET`/`S3_ENDPOINT_URL` are not set.
+- `R2_ACCESS_KEY`/`R2_SECRET_KEY` are only used in the temporary compatibility path (local emulators).
+
+### AWS deployment guidance
+
+For ECS/EKS/Lambda/EC2 deployments, **do not set static access keys in env**. Use IAM roles so the AWS SDK credential provider chain resolves credentials automatically. In AWS, typically you should set only:
+
+```env
+S3_BUCKET=your-bucket
+S3_REGION=us-east-1
+S3_SERVER_SIDE_ENCRYPTION=aws:kms
+S3_KMS_KEY_ID=arn:aws:kms:...
+```
+
+Keep `S3_ENDPOINT_URL` unset in AWS unless you intentionally target a non-AWS S3-compatible endpoint.
 
 ---
 

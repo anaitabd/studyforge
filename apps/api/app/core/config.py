@@ -10,10 +10,20 @@ class Settings(BaseSettings):
     NVIDIA_EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
     CHROMA_HOST: str = "chroma_server"
     CHROMA_PORT: int = 8000
-    R2_BUCKET: str = "studyforge"
-    R2_ENDPOINT: str = "http://localhost:9000"
-    R2_ACCESS_KEY: str = "minioadmin"
-    R2_SECRET_KEY: str = "minioadmin"
+    # Primary S3 configuration
+    S3_BUCKET: str = "studyforge"
+    S3_REGION: str = "us-east-1"
+    S3_ENDPOINT_URL: str = "http://localhost:9000"
+    S3_KMS_KEY_ID: str = ""
+    S3_AUTO_CREATE_BUCKET: bool = False
+    S3_USE_AWS_MANAGED_CREDENTIALS: bool = True
+    S3_SERVER_SIDE_ENCRYPTION: str = ""  # "AES256" (SSE-S3) or "aws:kms" (SSE-KMS)
+
+    # Temporary backward-compatibility for legacy R2/MinIO env names
+    R2_BUCKET: str = ""
+    R2_ENDPOINT: str = ""
+    R2_ACCESS_KEY: str = ""
+    R2_SECRET_KEY: str = ""
     CLERK_SECRET_KEY: str = ""
     CLERK_WEBHOOK_SECRET: str = ""
     SENDGRID_API_KEY: str = ""
