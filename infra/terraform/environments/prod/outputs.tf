@@ -1,0 +1,9 @@
+output "vpc_id" { value = module.network.vpc_id }
+output "private_subnets" { value = module.network.private_subnet_ids }
+output "api_security_group" { value = module.security.api_sg_id }
+output "db_endpoint" { value = module.rds.endpoint }
+output "assets_bucket" { value = module.s3.assets_bucket }
+output "uploads_bucket" { value = module.s3.uploads_bucket }
+output "queue_arns" { value = module.sqs.queue_arns }
+output "app_role_arn" { value = module.iam.app_role_arn }
+output "secret_arn" { value = module.secrets.secret_arn }
