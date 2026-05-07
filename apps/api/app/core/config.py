@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
+    TASK_EXECUTION_MODE: str = "celery"  # celery | hybrid | lambda
+    TASK_SQS_FILE_QUEUE_URL: str = ""
+    TASK_SQS_SLIDE_QUEUE_URL: str = ""
+    TASK_SQS_NOTIFICATION_QUEUE_URL: str = ""
+    TASK_EVENTBRIDGE_EXAM_DEADLINE_RULE: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

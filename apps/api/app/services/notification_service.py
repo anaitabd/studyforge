@@ -55,7 +55,7 @@ async def _save_in_app(
     await db.commit()
 
 
-def _dispatch_email(users: list[User], subject: str, html_body: str) -> None:
+def _dispatch_email(users: list[User], subject: str, html_body: str, idempotency_prefix: str = "") -> None:
     """Fire send_email_task for every user that has an email address."""
     from app.tasks.notification_tasks import send_email_task
 
@@ -66,6 +66,7 @@ def _dispatch_email(users: list[User], subject: str, html_body: str) -> None:
                     to_email=user.email,
                     subject=subject,
                     html_body=html_body,
+                    idempotency_key=f"{idempotency_prefix}:{user.id}" if idempotency_prefix else None,
                 )
             except Exception as e:
                 logger.warning(f"Could not queue email for {user.email}: {e}")
@@ -94,6 +95,7 @@ async def notify_file_ready(
     file_id: str,
     file_name: str,
     uploader_id: str,
+    idempotency_key: str | None = None,
 ) -> None:
     """
     Notify all group members (except the uploader) that a new file is ready.
@@ -107,6 +109,14 @@ async def notify_file_ready(
     body = f'"{file_name}" has been added to your group and is ready to study.'
     link = f"/groups/{group_id}/files/{file_id}"
 
+    if idempotency_key:
+        existing = await db.execute(
+            select(Notification).where(Notification.type == "file_ready", Notification.link == link)
+        )
+        if existing.scalar_one_or_none():
+            logger.info("File-ready notification already exists; skipping")
+            return
+
     await _save_in_app(db, users, "file_ready", title, body, link)
 
     subject = f"[StudyForge] New file: {file_name}"
@@ -114,7 +124,7 @@ async def notify_file_ready(
         f"<p>A new file <strong>{file_name}</strong> has been added to your group.</p>"
         f'<p><a href="{{frontend_url}}{link}">View file</a></p>'
     )
-    _dispatch_email(users, subject, html)
+    _dispatch_email(users, subject, html, idempotency_prefix=idempotency_key or "")
     _dispatch_whatsapp(users, f"[StudyForge] New file in your group: {file_name}")
 
     logger.info(f"File-ready notifications sent to {len(users)} users for file {file_id}")
