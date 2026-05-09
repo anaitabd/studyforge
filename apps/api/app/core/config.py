@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: str = ""
     AI_PROVIDER: str = "nvidia"
     AWS_REGION: str = "us-east-1"
-    BEDROCK_CHAT_MODEL_ID: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    BEDROCK_CHAT_MODEL_ID: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     BEDROCK_EMBED_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_CHAT_MODEL: str = "meta/llama-3.3-70b-instruct"
@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     CHROMA_HOST: str = "chroma_server"
     CHROMA_PORT: int = 8000
     # Primary S3 configuration
-    S3_BUCKET: str = "studyforge"
+    S3_BUCKET: str = ""
     S3_REGION: str = "us-east-1"
-    S3_ENDPOINT_URL: str = "http://localhost:9000"
+    S3_ENDPOINT_URL: str = ""
     S3_KMS_KEY_ID: str = ""
     S3_AUTO_CREATE_BUCKET: bool = False
     S3_USE_AWS_MANAGED_CREDENTIALS: bool = True
@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     R2_ENDPOINT: str = ""
     R2_ACCESS_KEY: str = ""
     R2_SECRET_KEY: str = ""
-    CLERK_SECRET_KEY: str = ""
+    CLERK_SECRET_KEY: str = "sk_test_mnerEkX6KyXArpVpLpKgkNpJKzSKqckNaDFJQaRAQ9"
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: str ="pk_test_aG9seS1kb2xwaGluLTc2LmNsZXJrLmFjY291bnRzLmRldiQ"
     CLERK_WEBHOOK_SECRET: str = ""
     SENDGRID_API_KEY: str = ""
     TWILIO_ACCOUNT_SID: str = ""
@@ -52,7 +53,7 @@ class Settings(BaseSettings):
     STRIPE_PERSONAL_ANNUAL_PRICE_ID: str = ""
     SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
-    FRONTEND_URLS: list[AnyHttpUrl] = Field(default_factory=list)
+    FRONTEND_URLS: Any = Field(default_factory=list)
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
@@ -67,9 +68,16 @@ class Settings(BaseSettings):
     @field_validator("FRONTEND_URLS", mode="before")
     @classmethod
     def parse_frontend_urls(cls, value: Any) -> list[str] | Any:
+        import json as _json
         if value in (None, "", []):
             return []
         if isinstance(value, str):
+            try:
+                parsed = _json.loads(value)
+                if isinstance(parsed, list):
+                    return [str(u).strip() for u in parsed if str(u).strip()]
+            except ValueError:
+                pass
             return [u.strip() for u in value.split(",") if u.strip()]
         return value
 

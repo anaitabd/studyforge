@@ -1,6 +1,7 @@
 import logging
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from svix.webhooks import Webhook, WebhookVerificationError
 from app.core.config import settings
 from app.core.database import get_db
@@ -48,15 +49,15 @@ async def clerk_webhook(request: Request, db=Depends(get_db)):
         name = f"{first} {last}".strip() or clerk_id
         avatar = data.get("image_url")
 
-        result = await db.execute(select(User).where(User.clerk_id == clerk_id))
-        user = result.scalar_one_or_none()
-        if user:
-            user.email = email
-            user.name = name
-            user.avatar_url = avatar
-        else:
-            user = User(clerk_id=clerk_id, email=email, name=name, avatar_url=avatar)
-            db.add(user)
+        stmt = (
+            pg_insert(User)
+            .values(clerk_id=clerk_id, email=email, name=name, avatar_url=avatar)
+            .on_conflict_do_update(
+                index_elements=["clerk_id"],
+                set_={"email": email, "name": name, "avatar_url": avatar},
+            )
+        )
+        await db.execute(stmt)
         await db.commit()
         logger.info(f"Synced user {clerk_id} ({email}) via {event_type}")
         return {"status": "ok", "type": event_type}

@@ -11,3 +11,10 @@ build/
 chroma_db/
 *.pptx
 .DS_Store
+
+# Terraform local working files/state
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.local.tfvars
+*.tfvars.local

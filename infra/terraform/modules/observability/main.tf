@@ -1,4 +1,7 @@
-resource "aws_cloudwatch_log_group" "api" { name = "/studyforge/${var.name}/api" retention_in_days = 14 }
+resource "aws_cloudwatch_log_group" "api" {
+  name              = "/studyforge/${var.name}/api"
+  retention_in_days = 14
+}
 
 resource "aws_cloudwatch_metric_alarm" "api_5xx" {
   alarm_name          = "${var.name}-api-5xx"

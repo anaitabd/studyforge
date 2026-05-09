@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 from openai import APIError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
@@ -115,45 +116,57 @@ class NvidiaAIProvider(BaseAIProvider):
 
 
 class BedrockAIProvider(BaseAIProvider):
+    # Semaphore limits concurrent in-flight Bedrock calls per process, preventing RPM bursts
+    _semaphore: asyncio.Semaphore | None = None
+
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        if cls._semaphore is None:
+            cls._semaphore = asyncio.Semaphore(3)
+        return cls._semaphore
+
     def __init__(self) -> None:
-        self.client = boto3.client("bedrock-runtime", region_name=settings.AWS_REGION)
+        # adaptive mode: boto3 tracks the token bucket and backs off automatically on throttling
+        _config = Config(
+            retries={"max_attempts": 10, "mode": "adaptive"},
+            read_timeout=120,
+            connect_timeout=10,
+        )
+        self.client = boto3.client("bedrock-runtime", region_name=settings.AWS_REGION, config=_config)
         self.chat_model = settings.BEDROCK_CHAT_MODEL_ID
         self.embed_model = settings.BEDROCK_EMBED_MODEL_ID
 
-    def _is_retryable(self, error: Exception) -> bool:
+    def _is_transient(self, error: Exception) -> bool:
         if isinstance(error, (EndpointConnectionError, ReadTimeoutError, TimeoutError)):
             return True
         if isinstance(error, ClientError):
             code = error.response.get("Error", {}).get("Code", "")
             status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            return code in {"ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException"} or status in {
-                500,
-                502,
-                503,
-                504,
-            }
+            # ThrottlingException is handled by boto3 adaptive mode — only retry infra errors here
+            return code in {"ServiceUnavailableException"} or status in {500, 502, 503, 504}
         return False
 
     async def _invoke_with_retry(self, payload: dict[str, Any], model_id: str) -> dict[str, Any]:
-        backoff = [1, 2, 4]
-        for attempt in range(3):
-            try:
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.client.invoke_model(
-                        modelId=model_id,
-                        contentType="application/json",
-                        accept="application/json",
-                        body=json.dumps(payload),
-                    ),
-                )
-                return json.loads(response["body"].read())
-            except Exception as exc:
-                if attempt == 2 or not self._is_retryable(exc):
-                    raise
-                wait = backoff[attempt] + random.uniform(0, 0.5)
-                logger.warning(f"Bedrock transient error ({type(exc).__name__}), retrying in {wait:.1f}s")
-                await asyncio.sleep(wait)
+        backoff = [2, 5, 10]
+        async with self._get_semaphore():
+            for attempt in range(3):
+                try:
+                    response = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: self.client.invoke_model(
+                            modelId=model_id,
+                            contentType="application/json",
+                            accept="application/json",
+                            body=json.dumps(payload),
+                        ),
+                    )
+                    return json.loads(response["body"].read())
+                except Exception as exc:
+                    if attempt == 2 or not self._is_transient(exc):
+                        raise
+                    wait = backoff[attempt] + random.uniform(0, 1)
+                    logger.warning(f"Bedrock transient error ({type(exc).__name__}), retrying in {wait:.1f}s")
+                    await asyncio.sleep(wait)
         return {}
 
     async def complete(self, kwargs: dict[str, Any]) -> str:
@@ -199,7 +212,7 @@ class AIService:
         self.embed_model = self.provider.embed_model
 
     async def chat_completion(self, messages: list[dict], stream: bool = False, temperature: float = 0.7, max_tokens: int = 4096) -> str | AsyncGenerator[str, None]:
-        kwargs = dict(model=self.chat_model, messages=messages, temperature=temperature, top_p=0.95, max_tokens=max_tokens, stream=stream)
+        kwargs = {"model": self.chat_model, "messages": messages, "temperature": temperature, "top_p": 0.95, "max_tokens": max_tokens, "stream": stream}
         if stream:
             return self.provider.stream(kwargs)
         return await self._complete_with_retry(kwargs)
@@ -223,7 +236,7 @@ class AIService:
             {"role": "system", "content": "You are a query optimizer for an educational search engine. Rewrite the user's question as a clear, standalone, search-optimized query that captures the full intent — even if the original question references prior conversation. Return ONLY the rewritten query, nothing else. No explanation, no punctuation at the end."},
             {"role": "user", "content": f"Conversation history:\n{history_str}\n\nCurrent question: {query}\n\nRewritten standalone query:"},
         ]
-        result = await self._complete_with_retry(dict(model=self.chat_model, messages=messages, temperature=0.3, max_tokens=256, stream=False))
+        result = await self._complete_with_retry({"model": self.chat_model, "messages": messages, "temperature": 0.3, "max_tokens": 256, "stream": False})
         return result.strip() or query
 
     async def generate_structured_json(self, prompt: str, schema_description: str, max_tokens: int = 8192) -> dict | list:
@@ -233,7 +246,7 @@ class AIService:
         ]
         for attempt in range(3):
             try:
-                raw = await self._complete_with_retry(dict(model=self.chat_model, messages=messages, temperature=0.4, max_tokens=max_tokens, stream=False))
+                raw = await self._complete_with_retry({"model": self.chat_model, "messages": messages, "temperature": 0.4, "max_tokens": max_tokens, "stream": False})
                 raw = raw.strip()
                 if raw.startswith("```"):
                     raw = raw.split("```")[1]
@@ -252,7 +265,7 @@ class AIService:
             {"role": "user", "content": f"Is this text appropriate for students? Text: {text[:500]}"},
         ]
         try:
-            result = await self._complete_with_retry(dict(model=self.chat_model, messages=messages, temperature=0.0, max_tokens=10, stream=False))
+            result = await self._complete_with_retry({"model": self.chat_model, "messages": messages, "temperature": 0.0, "max_tokens": 10, "stream": False})
             return "unsafe" not in result.lower()
         except Exception:
             return True

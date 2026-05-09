@@ -48,7 +48,7 @@ export function useRoomPresence(roomId: string, currentUser: CurrentUser | null)
 
     return () => {
       channel.untrack();
-      supabase.removeChannel(channel);
+      supabase?.removeChannel(channel);
     };
   }, [roomId, currentUser]);
 
