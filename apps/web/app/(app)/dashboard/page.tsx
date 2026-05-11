@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
-import { FolderOpen, FileText, GraduationCap, BookOpen, Plus, Clock, ArrowRight, type LucideIcon } from "lucide-react";
+import { FolderOpen, FileText, GraduationCap, BookOpen, Plus, Clock, ArrowRight, Flame, Target, type LucideIcon } from "lucide-react";
 import { useGroups } from "@/lib/hooks/useApi";
 import { GroupCard } from "@/components/groups/group-card";
 import { useContinueLearning, type ContinueLearningItem } from "@/lib/hooks/use-continue-learning";
+import { usePersonalKpis, useStreak } from "@/lib/hooks/use-individual-kpis";
 
 export default function DashboardPage() {
   const { user } = useUser();
   const { data: groups, isLoading } = useGroups();
   const { data: continueItems, isLoading: continueLoading } = useContinueLearning();
+  const { data: kpis } = usePersonalKpis();
+  const { data: streak } = useStreak();
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -24,18 +27,57 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="font-sora text-3xl font-bold text-primary">
-          {greeting}, {user?.firstName ?? "there"} 👋
-        </h1>
-        <p className="text-slate-500 mt-1 text-sm">Pick up where you left off, or start something new.</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="font-sora text-3xl font-bold text-primary">
+            {greeting}, {user?.firstName ?? "there"}
+          </h1>
+          <p className="text-slate-500 mt-1 text-sm">Pick up where you left off, or start something new.</p>
+        </div>
+        {streak && (
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-2xl border shadow-sm ${
+            streak.has_activity_today ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"
+          }`}>
+            <Flame size={18} className={streak.current_streak > 0 ? "text-amber-500" : "text-slate-300"} />
+            <div>
+              <p className="font-bold text-primary leading-none">{streak.current_streak} day{streak.current_streak !== 1 ? "s" : ""}</p>
+              <p className="text-[10px] text-slate-400">current streak</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard icon={FolderOpen} label="Groups" value={groups?.length ?? 0} color="text-accent" />
         <StatCard icon={FileText} label="Files indexed" value={totalFiles} color="text-teal" />
-        <StatCard icon={GraduationCap} label="Exams taken" value={0} color="text-amber" />
-        <StatCard icon={BookOpen} label="Cards due" value={0} color="text-destructive" />
+        <StatCard
+          icon={GraduationCap}
+          label="Exams taken"
+          value={kpis?.exams_taken ?? 0}
+          color="text-amber-500"
+        />
+        <StatCard
+          icon={BookOpen}
+          label="Cards due"
+          value={kpis?.cards_due ?? 0}
+          color={kpis?.cards_overdue ? "text-destructive" : "text-slate-400"}
+        />
+      </div>
+
+      {/* Goals quick link */}
+      <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+            <Target size={18} />
+          </div>
+          <div>
+            <p className="font-sora font-semibold text-primary text-sm">Study goals</p>
+            <p className="text-xs text-slate-400">Track your targets and stay on course.</p>
+          </div>
+        </div>
+        <Link href="/goals" className="text-sm text-accent font-medium hover:underline">
+          View goals →
+        </Link>
       </div>
 
       <section>

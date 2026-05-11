@@ -1,20 +1,23 @@
 import logging
 import re
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, date, timezone, timedelta
 from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import select, func
+from pydantic import BaseModel, Field
+from sqlalchemy import select, func, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.chat import ChatMessage
-from app.models.exam import Exam
+from app.models.exam import Exam, ExamSession, Question
 from app.models.file import File
+from app.models.flashcard import Flashcard, FlashcardProgress, FlashcardSet
+from app.models.goal import KpiCache, StreakRecord, StudyGoal
 from app.models.group import GroupMember
 from app.models.notification import Subscription
 from app.models.school import School
@@ -107,6 +110,8 @@ async def _build_account(user: User, db: AsyncSession) -> dict:
         "avatar_url": user.avatar_url,
         "role": user.role,
         "plan": user.plan,
+        "org_id": user.org_id,
+        "account_type": user.account_type,
         "school_name": school_name,
         "whatsapp_number": user.wa_number,
         "created_at": user.created_at.isoformat(),
@@ -262,3 +267,285 @@ async def delete_account(body: DeleteAccountRequest, current_user: CurrentUser, 
     user.is_deleted = True
 
     await db.commit()
+
+
+# ── individual KPI endpoints ───────────────────────────────────────────────────
+
+async def _compute_streak(user_id: str, db: AsyncSession) -> dict:
+    records = (await db.execute(
+        select(StreakRecord)
+        .where(StreakRecord.user_id == user_id, StreakRecord.has_activity == True)
+        .order_by(StreakRecord.date.desc())
+        .limit(365)
+    )).scalars().all()
+
+    today = date.today()
+    record_dates = {r.date for r in records}
+
+    current = 0
+    d = today
+    while d in record_dates:
+        current += 1
+        d -= timedelta(days=1)
+
+    longest = 0
+    run = 0
+    if records:
+        prev = records[0].date
+        run = 1
+        for r in records[1:]:
+            if (prev - r.date).days == 1:
+                run += 1
+            else:
+                run = 1
+            longest = max(longest, run)
+            prev = r.date
+        longest = max(longest, run)
+
+    return {
+        "current": current,
+        "longest": max(longest, current),
+        "today_active": today in record_dates,
+    }
+
+
+@router.get("/kpis")
+async def get_personal_kpis(current_user: CurrentUser, db: DB):
+    """
+    Personal KPI panel — all computed live from user_events + OLTP tables.
+    Returns the shape documented in the implementation spec.
+    """
+    user_id = current_user.id
+    today = date.today()
+    day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+
+    # ── active minutes today (from reading_events) ─────────────────────────
+    from app.models.notification import ReadingEvent
+    active_s_today = (await db.execute(
+        select(func.sum(ReadingEvent.active_time_s)).where(
+            ReadingEvent.user_id == user_id,
+            ReadingEvent.session_start >= day_start,
+        )
+    )).scalar() or 0
+    active_minutes_today = round(active_s_today / 60)
+
+    # ── flashcard retention ────────────────────────────────────────────────
+    total_reviews = (await db.execute(
+        select(func.count(FlashcardProgress.id)).where(FlashcardProgress.user_id == user_id)
+    )).scalar() or 0
+
+    # "good" or "easy" reviews: ease_factor > 2.5 (default is 2.5, increases on good answers)
+    good_reviews = (await db.execute(
+        select(func.count(FlashcardProgress.id)).where(
+            FlashcardProgress.user_id == user_id,
+            FlashcardProgress.ease_factor > 2.5,
+        )
+    )).scalar() or 0
+    retention_rate = round(good_reviews / total_reviews, 4) if total_reviews else None
+
+    # ── cards due / overdue ────────────────────────────────────────────────
+    cards_due = (await db.execute(
+        select(func.count(FlashcardProgress.id)).where(
+            FlashcardProgress.user_id == user_id,
+            FlashcardProgress.due_date <= today,
+        )
+    )).scalar() or 0
+
+    yesterday = today - timedelta(days=1)
+    cards_overdue = (await db.execute(
+        select(func.count(FlashcardProgress.id)).where(
+            FlashcardProgress.user_id == user_id,
+            FlashcardProgress.due_date <= yesterday,
+        )
+    )).scalar() or 0
+
+    # ── exam score trend (last 10 submitted sessions) ──────────────────────
+    sessions = (await db.execute(
+        select(ExamSession)
+        .where(ExamSession.user_id == user_id, ExamSession.submitted_at.is_not(None))
+        .order_by(ExamSession.submitted_at.desc())
+        .limit(10)
+    )).scalars().all()
+    score_trend = [
+        {
+            "date": s.submitted_at.date().isoformat(),
+            "score": round(s.score / s.total, 4) if s.score is not None and s.total else None,
+        }
+        for s in reversed(sessions)
+    ]
+
+    # ── streak ─────────────────────────────────────────────────────────────
+    streak = await _compute_streak(user_id, db)
+
+    # ── active study goal ──────────────────────────────────────────────────
+    goal = (await db.execute(
+        select(StudyGoal)
+        .where(StudyGoal.user_id == user_id, StudyGoal.status == "active")
+        .order_by(StudyGoal.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    goal_out = None
+    if goal:
+        days_left = (goal.target_date - today).days if goal.target_date else None
+        on_pace = (days_left is not None and days_left > 0 and active_minutes_today >= 30)
+        goal_out = {
+            "id": goal.id,
+            "title": goal.title,
+            "target_date": goal.target_date.isoformat() if goal.target_date else None,
+            "target_score": goal.target_score,
+            "days_remaining": days_left,
+            "on_pace": on_pace,
+        }
+
+    return {
+        "active_minutes_today": active_minutes_today,
+        "active_minutes_goal": 60,
+        "flashcard_retention_rate": retention_rate,
+        "cards_due_today": cards_due,
+        "cards_overdue": cards_overdue,
+        "exam_score_trend": score_trend,
+        "streak": streak,
+        "weak_areas": [],  # populated by /me/weak-areas endpoint
+        "study_goal": goal_out,
+    }
+
+
+class GoalCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    target_date: str | None = None  # ISO date
+    target_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    subject: str | None = None
+    file_ids: list[str] = Field(default_factory=list)
+
+
+class GoalUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    target_date: str | None = None
+    target_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    status: str | None = Field(default=None, pattern=r"^(active|achieved|abandoned)$")
+
+
+@router.post("/goals")
+async def create_goal(body: GoalCreate, current_user: CurrentUser, db: DB):
+    """Create a personal study goal."""
+    goal = StudyGoal(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        title=body.title,
+        target_date=date.fromisoformat(body.target_date) if body.target_date else None,
+        target_score=body.target_score,
+        subject=body.subject,
+        file_ids=body.file_ids,
+    )
+    db.add(goal)
+    await db.commit()
+    await db.refresh(goal)
+    return {
+        "id": goal.id, "title": goal.title,
+        "target_date": goal.target_date.isoformat() if goal.target_date else None,
+        "status": goal.status, "created_at": goal.created_at.isoformat(),
+    }
+
+
+@router.get("/goals")
+async def list_goals(current_user: CurrentUser, db: DB):
+    """List study goals with progress percentage."""
+    goals = (await db.execute(
+        select(StudyGoal)
+        .where(StudyGoal.user_id == current_user.id)
+        .order_by(StudyGoal.created_at.desc())
+    )).scalars().all()
+
+    today = date.today()
+    result = []
+    for g in goals:
+        days_left = (g.target_date - today).days if g.target_date else None
+        result.append({
+            "id": g.id, "title": g.title, "subject": g.subject,
+            "target_date": g.target_date.isoformat() if g.target_date else None,
+            "target_score": g.target_score,
+            "status": g.status,
+            "days_remaining": days_left,
+            "file_ids": g.file_ids or [],
+            "created_at": g.created_at.isoformat(),
+        })
+
+    return {"goals": result}
+
+
+@router.patch("/goals/{goal_id}")
+async def update_goal(goal_id: str, body: GoalUpdate, current_user: CurrentUser, db: DB):
+    """Update or mark a study goal achieved/abandoned."""
+    goal = (await db.execute(
+        select(StudyGoal).where(StudyGoal.id == goal_id, StudyGoal.user_id == current_user.id)
+    )).scalar_one_or_none()
+    if not goal:
+        raise HTTPException(status_code=404, detail="goal_not_found")
+
+    if body.title is not None:
+        goal.title = body.title
+    if body.target_date is not None:
+        goal.target_date = date.fromisoformat(body.target_date)
+    if body.target_score is not None:
+        goal.target_score = body.target_score
+    if body.status is not None:
+        goal.status = body.status
+
+    await db.commit()
+    return {
+        "id": goal.id, "title": goal.title, "status": goal.status,
+        "target_date": goal.target_date.isoformat() if goal.target_date else None,
+    }
+
+
+@router.get("/streak")
+async def get_streak(current_user: CurrentUser, db: DB):
+    """Current streak, longest streak, and whether user has activity today."""
+    return await _compute_streak(current_user.id, db)
+
+
+@router.get("/weak-areas")
+async def get_weak_areas(current_user: CurrentUser, db: DB):
+    """
+    AI-identified weak concepts from the last 10 wrong exam answers.
+    Uses generate_structured_json with the existing ai_service pattern.
+    """
+    wrong_answers = (await db.execute(
+        select(ExamSession, Question)
+        .join(Question, Question.exam_id == ExamSession.exam_id)
+        .where(
+            ExamSession.user_id == current_user.id,
+            ExamSession.submitted_at.is_not(None),
+        )
+        .order_by(ExamSession.submitted_at.desc())
+        .limit(5)
+    )).all()
+
+    wrong_texts = []
+    for session, question in wrong_answers:
+        user_answer = (session.answers or {}).get(question.id)
+        if user_answer and user_answer.upper() != question.correct_answer.upper():
+            wrong_texts.append(f"Q: {question.content[:200]} | Wrong: {user_answer} | Correct: {question.correct_answer}")
+
+    if not wrong_texts:
+        return {"weak_areas": []}
+
+    try:
+        from app.services.ai_service import ai_service
+        prompt = (
+            "Based on these wrong exam answers, identify 3-5 specific concepts the student "
+            "struggles with. Return only the concept names, no explanations.\n\n"
+            + "\n".join(wrong_texts[:10])
+        )
+        result = await ai_service.generate_structured_json(
+            prompt=prompt,
+            schema_description='["concept name", "concept name", ...]',
+            max_tokens=256,
+        )
+        weak_areas = result if isinstance(result, list) else []
+    except Exception as exc:
+        logger.warning("weak-areas AI call failed: %s", exc)
+        weak_areas = []
+
+    return {"weak_areas": [str(w) for w in weak_areas[:5]]}

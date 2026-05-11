@@ -40,6 +40,8 @@ class OpenAICompatProvider(BaseAIProvider):
         self.client = OpenAI(
             api_key=settings.OPENAI_API_KEY or "dummy",
             base_url=settings.OPENAI_BASE_URL or None,
+            timeout=60.0,
+            max_retries=0,
         )
         self.chat_model = settings.OPENAI_CHAT_MODEL
         self.embed_model = settings.OPENAI_EMBED_MODEL
@@ -135,7 +137,12 @@ class OpenAICompatProvider(BaseAIProvider):
 
 class NvidiaAIProvider(BaseAIProvider):
     def __init__(self) -> None:
-        self.client = OpenAI(base_url=settings.NVIDIA_BASE_URL, api_key=settings.NVIDIA_API_KEY)
+        self.client = OpenAI(
+            base_url=settings.NVIDIA_BASE_URL,
+            api_key=settings.NVIDIA_API_KEY,
+            timeout=60.0,
+            max_retries=0,
+        )
         self.chat_model = settings.NVIDIA_CHAT_MODEL
         self.embed_model = settings.NVIDIA_EMBED_MODEL
 
@@ -200,6 +207,88 @@ class NvidiaAIProvider(BaseAIProvider):
                     await asyncio.sleep(2 ** attempt)
                 except Exception as e:
                     logger.error(f"Embedding error on batch {i}: {e}")
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(1)
+        return all_embeddings
+
+
+# ─── Ollama provider (local NVIDIA GPU) ──────────────────────────────────────
+# Requires Ollama running locally (or in docker-compose with GPU passthrough).
+# Chat model:  any model pulled via `ollama pull <model>` (e.g. llama3.2:3b)
+# Embed model: `ollama pull nomic-embed-text`  — 768-dim, free, runs on GPU
+#
+# Ollama exposes a fully OpenAI-compatible endpoint at /v1, so the standard
+# openai Python client works without any extra dependencies.
+
+class OllamaProvider(BaseAIProvider):
+    def __init__(self) -> None:
+        self.client = OpenAI(
+            base_url=settings.OLLAMA_BASE_URL,
+            api_key="ollama",  # Ollama ignores the key; the client requires a value
+        )
+        self.chat_model = settings.OLLAMA_CHAT_MODEL
+        self.embed_model = settings.OLLAMA_EMBED_MODEL
+
+    async def complete(self, kwargs: dict[str, Any]) -> str:
+        for attempt in range(3):
+            try:
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.client.chat.completions.create(
+                        model=kwargs.get("model", self.chat_model),
+                        messages=kwargs.get("messages", []),
+                        temperature=kwargs.get("temperature", 0.7),
+                        max_tokens=kwargs.get("max_tokens", 4096),
+                        stream=False,
+                    ),
+                )
+                return response.choices[0].message.content or ""
+            except APITimeoutError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(_BACKOFF[attempt])
+            except APIError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(_BACKOFF[attempt])
+        return ""
+
+    async def stream(self, kwargs: dict[str, Any]) -> AsyncGenerator[str, None]:
+        response_stream = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.client.chat.completions.create(
+                model=kwargs.get("model", self.chat_model),
+                messages=kwargs.get("messages", []),
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 4096),
+                stream=True,
+            ),
+        )
+        for chunk in response_stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+    async def embed_texts(self, texts: list[str], input_type: str = "passage") -> list[list[float]]:
+        if not texts:
+            return []
+        all_embeddings: list[list[float]] = []
+        batch_size = 64  # Ollama handles smaller batches better
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            for attempt in range(3):
+                try:
+                    response = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda b=batch: self.client.embeddings.create(
+                            model=self.embed_model,
+                            input=b,
+                        ),
+                    )
+                    all_embeddings.extend(item.embedding for item in response.data)
+                    break
+                except Exception as e:
+                    logger.error(f"Ollama embedding error batch {i}: {e}")
                     if attempt == 2:
                         raise
                     await asyncio.sleep(1)
@@ -297,11 +386,13 @@ class AIService:
             self.provider: BaseAIProvider = BedrockAIProvider()
         elif provider == "nvidia":
             self.provider = NvidiaAIProvider()
+        elif provider == "ollama":
+            self.provider = OllamaProvider()
         else:
             self.provider = OpenAICompatProvider()
         self.chat_model = self.provider.chat_model
         self.embed_model = self.provider.embed_model
-        logger.info(f"AIService initialised — provider={provider} chat={self.chat_model}")
+        logger.info(f"AIService initialised — provider={provider} chat={self.chat_model} embed={self.embed_model}")
 
     async def chat_completion(
         self,

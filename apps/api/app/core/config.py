@@ -22,7 +22,12 @@ class Settings(BaseSettings):
     OPENAI_CHAT_MODEL: str = "openai.gpt-oss-120b"
     OPENAI_EMBED_MODEL: str = "amazon.titan-embed-text-v2:0"
 
-    AI_PROVIDER: str = "openai"        # openai | nvidia | bedrock
+    AI_PROVIDER: str = "openai"        # openai | nvidia | bedrock | ollama
+
+    # Ollama local settings (used when AI_PROVIDER=ollama)
+    OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
+    OLLAMA_CHAT_MODEL: str = "llama3.2:3b"
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
 
     # Legacy NVIDIA settings (kept for backward compat)
     NVIDIA_API_KEY: str = ""

@@ -34,6 +34,8 @@ export interface AccountData {
   avatar_url: string | null;
   role: "student" | "teacher" | "school_admin" | "super_admin";
   plan: "free" | "personal" | "school";
+  org_id: string | null;
+  account_type: "individual" | "org";
   school_name: string | null;
   whatsapp_number: string | null;
   created_at: string;

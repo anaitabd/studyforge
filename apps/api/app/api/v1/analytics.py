@@ -12,6 +12,7 @@ from app.core.security import get_current_user
 from app.models.file import File
 from app.models.group import GroupMember
 from app.models.notification import ReadingEvent
+from app.services.analytics_service import track_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -84,4 +85,12 @@ async def track_reading(
         )
         db.add(ev)
     await db.commit()
+
+    await track_event(
+        user_id=current_user.id,
+        event_type="file.read",
+        resource_type="file",
+        resource_id=body.file_id,
+        metadata={"scroll_depth_pct": body.scroll_depth_pct, "active_time_s": body.active_time_seconds},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

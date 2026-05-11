@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
 import app.models  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
-from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths, me, slides
+from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths, me, slides, organizations
 
 
 class CloudWatchJsonFormatter(logging.Formatter):
@@ -106,6 +106,7 @@ app.include_router(notifications.router, prefix=API_V1_PREFIX)
 app.include_router(learning_paths.router, prefix=API_V1_PREFIX)
 app.include_router(me.router, prefix=API_V1_PREFIX)
 app.include_router(slides.router, prefix=API_V1_PREFIX)
+app.include_router(organizations.router, prefix=API_V1_PREFIX)
 
 
 @app.get("/health")

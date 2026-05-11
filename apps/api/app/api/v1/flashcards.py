@@ -12,6 +12,7 @@ from app.core.security import get_current_user
 from app.models.flashcard import Flashcard, FlashcardProgress, FlashcardSet
 from app.models.group import GroupMember
 from app.services import flashcard_service
+from app.services.analytics_service import track_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["flashcards"])
@@ -98,6 +99,7 @@ async def generate_flashcard_set(
             db=db,
             group_id=group_id,
             user_id=current_user.id,
+            org_id=current_user.org_id,
             title=body.title,
             file_ids=body.file_ids,
             max_cards=body.max_cards,
@@ -287,6 +289,13 @@ async def review_card(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    await track_event(
+        user_id=current_user.id,
+        event_type="flashcard.reviewed",
+        resource_type="flashcard_set",
+        resource_id=set_id,
+        metadata={"card_id": card_id, "rating": body.rating},
+    )
     return progress
 
 

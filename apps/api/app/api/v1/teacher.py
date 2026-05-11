@@ -1,19 +1,24 @@
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.assignment import Assignment, AssignmentProgress
 from app.models.chat import ChatMessage
+from app.models.cohort import Cohort, CohortMember
 from app.models.exam import Exam, ExamSession
 from app.models.file import File
 from app.models.flashcard import FlashcardSet
 from app.models.group import Group, GroupMember
 from app.models.learning_path import LearningPath
 from app.models.notification import ReadingEvent
+from app.models.room import RoomMember
 from app.models.slide_deck import SlideDeck
 from app.models.user import User
 
@@ -305,3 +310,244 @@ async def get_generate_history(
     return items[:20]
 
 
+# ── cohort live view ───────────────────────────────────────────────────────────
+
+class GenerateCohortRequest(BaseModel):
+    resource_type: str = Field(..., pattern=r"^(exam|learning_path|flashcards|slides)$")
+    config: dict = Field(default_factory=dict)
+    file_ids: list[str] = Field(default_factory=list)
+
+
+class AssignmentFeedbackRequest(BaseModel):
+    feedback: str | None = None
+    status: str = Field(default="graded", pattern=r"^(graded|submitted|in_progress)$")
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+async def _require_cohort_teacher(cohort_id: str, user_id: str, db: AsyncSession) -> Cohort:
+    cohort = (await db.execute(
+        select(Cohort).where(Cohort.id == cohort_id)
+    )).scalar_one_or_none()
+    if not cohort:
+        raise HTTPException(status_code=404, detail="cohort_not_found")
+
+    membership = (await db.execute(
+        select(CohortMember).where(
+            CohortMember.cohort_id == cohort_id,
+            CohortMember.user_id == user_id,
+            CohortMember.role == "teacher",
+        )
+    )).scalar_one_or_none()
+    if not membership:
+        from app.models.permissions import Permission
+        from app.models.organization import Organization
+        org = (await db.execute(
+            select(Organization).where(Organization.id == cohort.org_id)
+        )).scalar_one_or_none()
+        is_org_admin = org and org.admin_user_id == user_id
+        if not is_org_admin:
+            perm = (await db.execute(
+                select(Permission).where(
+                    Permission.actor_id == user_id,
+                    Permission.resource_type == "org",
+                    Permission.resource_id == cohort.org_id,
+                    Permission.role == "admin",
+                )
+            )).scalar_one_or_none()
+            if not perm:
+                raise HTTPException(status_code=403, detail="teacher_or_admin_required")
+    return cohort
+
+
+@router.get("/cohorts/{cohort_id}/live")
+async def cohort_live(cohort_id: str, current_user: CurrentUser, db: DB):
+    """
+    Students online now: combines room_members (is_online=True, last 15 s) with
+    their most recent reading_event session. Poll every 15 s from the frontend.
+    """
+    await _require_cohort_teacher(cohort_id, current_user.id, db)
+
+    student_ids = [
+        cm.user_id for cm in (await db.execute(
+            select(CohortMember).where(
+                CohortMember.cohort_id == cohort_id,
+                CohortMember.role == "student",
+            )
+        )).scalars().all()
+    ]
+    if not student_ids:
+        return {"online": [], "cohort_id": cohort_id}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=15)
+    online_ids = {
+        rm.user_id for rm in (await db.execute(
+            select(RoomMember).where(
+                RoomMember.user_id.in_(student_ids),
+                RoomMember.is_online == True,
+                RoomMember.joined_at >= cutoff,
+            )
+        )).scalars().all()
+    }
+
+    recent_reading: dict[str, ReadingEvent] = {}
+    if student_ids:
+        for re in (await db.execute(
+            select(ReadingEvent).where(
+                ReadingEvent.user_id.in_(student_ids),
+                ReadingEvent.session_start >= datetime.now(timezone.utc) - timedelta(minutes=5),
+            ).order_by(ReadingEvent.session_start.desc())
+        )).scalars().all():
+            if re.user_id not in recent_reading:
+                recent_reading[re.user_id] = re
+
+    users = {
+        u.id: u for u in (await db.execute(
+            select(User).where(User.id.in_(student_ids))
+        )).scalars().all()
+    }
+
+    online = []
+    for uid in student_ids:
+        u = users.get(uid)
+        if not u:
+            continue
+        re = recent_reading.get(uid)
+        online.append({
+            "user_id": uid,
+            "name": u.name,
+            "avatar_url": u.avatar_url,
+            "is_online": uid in online_ids,
+            "current_file_id": re.file_id if re else None,
+            "last_active": re.session_start.isoformat() if re else None,
+        })
+
+    return {
+        "cohort_id": cohort_id,
+        "online_count": sum(1 for s in online if s["is_online"]),
+        "online": online,
+    }
+
+
+@router.post("/cohorts/{cohort_id}/generate")
+async def generate_for_cohort(cohort_id: str, body: GenerateCohortRequest, current_user: CurrentUser, db: DB):
+    """
+    Fan-out content generation: runs the existing generation task for each student
+    in the cohort via a Celery group.
+    """
+    await _require_cohort_teacher(cohort_id, current_user.id, db)
+
+    students = (await db.execute(
+        select(CohortMember).where(
+            CohortMember.cohort_id == cohort_id,
+            CohortMember.role == "student",
+        )
+    )).scalars().all()
+
+    if not students:
+        return {"queued": 0, "cohort_id": cohort_id}
+
+    from celery import group as celery_group
+
+    tasks = []
+    if body.resource_type == "exam":
+        from app.tasks.file_tasks import generate_exam_task
+        for s in students:
+            tasks.append(generate_exam_task.s(
+                user_id=s.user_id,
+                file_ids=body.file_ids,
+                config=body.config,
+            ))
+    elif body.resource_type == "flashcards":
+        from app.tasks.file_tasks import generate_flashcards_task
+        for s in students:
+            tasks.append(generate_flashcards_task.s(
+                user_id=s.user_id,
+                file_ids=body.file_ids,
+                config=body.config,
+            ))
+
+    if tasks:
+        celery_group(*tasks).apply_async()
+
+    return {"queued": len(tasks), "cohort_id": cohort_id, "resource_type": body.resource_type}
+
+
+@router.get("/assignments/{assignment_id}/progress")
+async def get_assignment_progress_teacher(assignment_id: str, current_user: CurrentUser, db: DB):
+    """Assignment progress rows joined with user name/email. Teacher or org admin."""
+    assignment = (await db.execute(
+        select(Assignment).where(Assignment.id == assignment_id)
+    )).scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="assignment_not_found")
+
+    await _require_cohort_teacher(assignment.cohort_id, current_user.id, db)
+
+    rows = (await db.execute(
+        select(AssignmentProgress, User)
+        .join(User, User.id == AssignmentProgress.user_id)
+        .where(AssignmentProgress.assignment_id == assignment_id)
+    )).all()
+
+    return {
+        "assignment_id": assignment_id,
+        "title": assignment.title,
+        "due_at": assignment.due_at.isoformat() if assignment.due_at else None,
+        "progress": [
+            {
+                "user_id": u.id, "name": u.name, "email": u.email,
+                "status": ap.status, "score": ap.score,
+                "submitted_at": ap.submitted_at.isoformat() if ap.submitted_at else None,
+                "feedback": ap.feedback,
+            }
+            for ap, u in rows
+        ],
+    }
+
+
+@router.patch("/assignments/{assignment_id}/progress/{user_id}")
+async def grade_assignment(
+    assignment_id: str,
+    user_id: str,
+    body: AssignmentFeedbackRequest,
+    current_user: CurrentUser,
+    db: DB,
+):
+    """Set feedback and graded status on an assignment_progress row."""
+    assignment = (await db.execute(
+        select(Assignment).where(Assignment.id == assignment_id)
+    )).scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="assignment_not_found")
+
+    await _require_cohort_teacher(assignment.cohort_id, current_user.id, db)
+
+    ap = (await db.execute(
+        select(AssignmentProgress).where(
+            AssignmentProgress.assignment_id == assignment_id,
+            AssignmentProgress.user_id == user_id,
+        )
+    )).scalar_one_or_none()
+
+    if not ap:
+        ap = AssignmentProgress(
+            id=str(__import__("uuid").uuid4()),
+            assignment_id=assignment_id,
+            user_id=user_id,
+            status=body.status,
+            score=body.score,
+            feedback=body.feedback,
+        )
+        db.add(ap)
+    else:
+        ap.status = body.status
+        if body.score is not None:
+            ap.score = body.score
+        if body.feedback is not None:
+            ap.feedback = body.feedback
+
+    await db.commit()
+    return {
+        "assignment_id": assignment_id, "user_id": user_id,
+        "status": ap.status, "score": ap.score, "feedback": ap.feedback,
+    }

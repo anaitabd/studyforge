@@ -38,6 +38,14 @@ async def clerk_webhook(request: Request, db=Depends(get_db)):
     if not clerk_id:
         return {"status": "ignored", "reason": "no clerk id"}
 
+    if event_type == "session.created":
+        result = await db.execute(select(User).where(User.clerk_id == clerk_id))
+        user = result.scalar_one_or_none()
+        if user:
+            from app.services.analytics_service import track_event
+            await track_event(user_id=user.id, event_type="user.login")
+        return {"status": "ok", "type": event_type}
+
     if event_type in ("user.created", "user.updated"):
         primary_id = data.get("primary_email_address_id")
         email = next(

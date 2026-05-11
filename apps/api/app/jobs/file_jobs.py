@@ -29,6 +29,10 @@ async def process_file(file_id: str, r2_key: str, mime_type: str, session_factor
         file_name = file_obj.name
         uploader_id = file_obj.user_id
 
+        from app.models.user import User as _User
+        uploader = (await db.execute(select(_User).where(_User.id == uploader_id))).scalar_one_or_none()
+        org_id = uploader.org_id if uploader else None
+
         await db.execute(
             update(File).where(File.id == file_id).values(status="processing", error_message=None)
         )
@@ -51,7 +55,7 @@ async def process_file(file_id: str, r2_key: str, mime_type: str, session_factor
             sub_embs = await ai_service.embed_texts([c["text"] for c in sub], input_type="passage")
             for c, e in zip(sub, sub_embs):
                 c["embedding"] = e
-            vector_store.upsert_chunks(group_id, sub)
+            vector_store.upsert_chunks(sub, org_id, uploader_id)
             indexed += len(sub)
 
         async with session_factory() as db:

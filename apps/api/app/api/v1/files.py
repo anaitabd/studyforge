@@ -214,7 +214,7 @@ async def delete_file(
     except Exception as e:
         logger.warning(f"Could not delete R2 file {file_obj.r2_key}: {e}")
 
-    vector_store.delete_file_chunks(group_id, file_id)
+    vector_store.delete_file_chunks(file_id, current_user.org_id, file_obj.user_id)
 
     await db.execute(delete(File).where(File.id == file_id))
     await db.commit()

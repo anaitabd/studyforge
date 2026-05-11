@@ -66,6 +66,7 @@ async def _get_or_create_user(clerk_id: str, db: AsyncSession):
     """Return the local User record, creating it from Clerk API if missing."""
     from app.models.user import User
     from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
 
     result = await db.execute(select(User).where(User.clerk_id == clerk_id))
     user = result.scalar_one_or_none()
@@ -99,9 +100,27 @@ async def _get_or_create_user(clerk_id: str, db: AsyncSession):
 
     user = User(clerk_id=clerk_id, email=email, name=name)
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    logger.info(f"Auto-provisioned user {clerk_id} ({email})")
+    try:
+        await db.commit()
+        await db.refresh(user)
+        logger.info(f"Auto-provisioned user {clerk_id} ({email})")
+    except IntegrityError:
+        await db.rollback()
+        # Case 1: concurrent request already inserted the same clerk_id
+        result = await db.execute(select(User).where(User.clerk_id == clerk_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            # Case 2: email uniqueness conflict — existing account with same email
+            # (e.g. Clerk account recreated). Re-link clerk_id to that account.
+            result = await db.execute(select(User).where(User.email == email))
+            user = result.scalar_one_or_none()
+            if user is not None:
+                user.clerk_id = clerk_id
+                await db.commit()
+                await db.refresh(user)
+                logger.info(f"Re-linked clerk_id {clerk_id} to existing account ({email})")
+            else:
+                raise HTTPException(status_code=409, detail="Account conflict: could not provision user")
     return user
 
 
@@ -125,7 +144,7 @@ async def get_current_user(
 
 
 def require_role(*roles: str):
-    async def dependency(current_user=Depends(get_current_user)):
+    def dependency(current_user=Depends(get_current_user)):
         if current_user.role not in roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return current_user

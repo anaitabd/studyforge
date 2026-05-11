@@ -25,7 +25,8 @@ class RAGService:
 
     async def query(
         self,
-        group_id: str,
+        org_id: str | None,
+        user_id: str,
         user_message: str,
         chat_history: list[dict],
         language: str = "auto",
@@ -49,7 +50,8 @@ class RAGService:
 
             # 3. Retrieve top-8 chunks from ChromaDB
             raw_chunks = vector_store.query(
-                group_id=group_id,
+                org_id=org_id,
+                user_id=user_id,
                 query_embedding=query_embedding,
                 top_k=8,
                 min_score=0.4,
@@ -59,7 +61,7 @@ class RAGService:
                 logger.debug(f"Top similarity scores: {[round(c.get('similarity_score', 0), 3) for c in raw_chunks[:3]]}")
 
             if not raw_chunks:
-                logger.warning(f"No chunks found for group {group_id} after semantic search. Rewritten query: '{rewritten}'")
+                logger.warning(f"No chunks found for user {user_id} after semantic search. Rewritten query: '{rewritten}'")
                 yield {"type": "token", "content": NO_CONTEXT_REPLY}
                 yield {"type": "done"}
                 return
@@ -119,7 +121,7 @@ class RAGService:
             yield {"type": "done"}
 
         except Exception as e:
-            logger.error(f"RAG query error for group {group_id}: {e}")
+            logger.error(f"RAG query error for user {user_id}: {e}")
             yield {"type": "error", "content": "An error occurred. Please try again."}
 
     def _build_system_prompt(self, context: str, language: str) -> str:

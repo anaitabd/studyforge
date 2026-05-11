@@ -2,6 +2,9 @@ import pytest
 
 from app.services.slide_service import (
     _cluster_chunks,
+    _fallback_bullets,
+    _fallback_explanation,
+    _fallback_outline_for_cluster,
     _normalize_bullets,
     _normalize_examples,
     _normalize_quiz,
@@ -85,3 +88,46 @@ def test_normalize_bullets_dedupes_blank_and_caps():
 def test_normalize_bullets_handles_non_list():
     assert _normalize_bullets(None) == []
     assert _normalize_bullets("not a list") == []
+
+
+def test_slide_fallback_content_uses_outline_and_chunks():
+    outline = {
+        "title": "Encapsulation",
+        "key_idea": "Encapsulation keeps object state protected behind methods.",
+    }
+    chunks = [
+        {
+            "text": (
+                "Encapsulation is an object-oriented principle that groups data "
+                "with the operations that manage that data."
+            ),
+            "metadata": {"page_number": 3},
+        }
+    ]
+
+    bullets = _fallback_bullets(outline, chunks)
+    explanation = _fallback_explanation(outline, chunks)
+
+    assert bullets
+    assert "Encapsulation" in explanation
+    assert "Source-grounded notes" in explanation
+
+
+def test_fallback_outline_marks_slides_as_fallback():
+    chunks = [
+        {
+            "text": "Encapsulation protects object state behind a stable interface.",
+            "metadata": {"file_name": "oop.pdf", "page_number": 5},
+        },
+        {
+            "text": "Inheritance lets a class reuse behavior from a parent class.",
+            "metadata": {"file_name": "oop.pdf", "page_number": 6},
+        },
+    ]
+
+    outline = _fallback_outline_for_cluster(chunks, target_slides=3, section_index=0)
+
+    assert len(outline) == 2
+    assert outline[0]["_fallback"] is True
+    assert outline[0]["source_file"] == "oop.pdf"
+    assert outline[0]["source_pages"] == [5]

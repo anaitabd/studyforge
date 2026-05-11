@@ -152,6 +152,7 @@ async def generate_path(
     db: AsyncSession,
     group_id: str,
     user_id: str,
+    org_id: str | None,
     title: str,
     file_ids: list[str] | None,
     module_count: int,
@@ -168,7 +169,7 @@ async def generate_path(
         raise ValueError("No ready files found in this group.")
     resolved_ids = [f.id for f in files]
 
-    chunks = vector_store.get_all_chunks_for_files(group_id, resolved_ids)
+    chunks = vector_store.get_all_chunks_for_files(resolved_ids, org_id, user_id)
     if not chunks:
         raise ValueError("No indexed content. Wait for processing to finish.")
 
@@ -202,7 +203,8 @@ async def generate_path(
         try:
             embeddings = await ai_service.embed_texts([query_text.strip() or "course content"], input_type="query")
             mod_chunks = vector_store.query(
-                group_id=group_id,
+                org_id=org_id,
+                user_id=user_id,
                 query_embedding=embeddings[0],
                 top_k=6,
                 min_score=0.0,

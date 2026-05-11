@@ -148,6 +148,7 @@ async def generate_exam(
     db: AsyncSession,
     group_id: str,
     creator_id: str,
+    org_id: str | None,
     title: str,
     question_count: int = 10,
     difficulty: str = "mixed",
@@ -186,7 +187,7 @@ async def generate_exam(
         resolved_file_ids = [f.id for f in files]
 
     # Fetch chunks from ChromaDB
-    all_chunks = vector_store.get_all_chunks_for_files(group_id, resolved_file_ids)
+    all_chunks = vector_store.get_all_chunks_for_files(resolved_file_ids, org_id, creator_id)
     if not all_chunks:
         raise ValueError("No indexed content found. The files may still be processing.")
 

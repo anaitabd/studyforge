@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
     environment:
       POSTGRES_DB: studyforge
       POSTGRES_USER: studyforge
@@ -59,6 +59,22 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: alembic upgrade head
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://studyforge:studyforge@postgres:5432/studyforge
+    volumes:
+      - ./apps/api:/app
+
   api:
     build:
       context: ./apps/api
@@ -75,12 +91,15 @@ services:
         condition: service_healthy
       chroma_server:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - ./apps/api/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://studyforge:studyforge@postgres:5432/studyforge
       REDIS_URL: redis://redis:6379/0
       R2_ENDPOINT: http://minio:9000
+      S3_AUTO_CREATE_BUCKET: "true"
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
     volumes:
@@ -100,12 +119,15 @@ services:
         condition: service_healthy
       chroma_server:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - ./apps/api/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://studyforge:studyforge@postgres:5432/studyforge
       REDIS_URL: redis://redis:6379/0
       R2_ENDPOINT: http://minio:9000
+      S3_AUTO_CREATE_BUCKET: "true"
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
     volumes:
@@ -117,7 +139,33 @@ services:
       dockerfile: Dockerfile
     command: celery -A app.tasks.celery_app beat --loglevel=info
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - ./apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://studyforge:studyforge@postgres:5432/studyforge
+      REDIS_URL: redis://redis:6379/0
+      R2_ENDPOINT: http://minio:9000
+      CHROMA_HOST: chroma_server
+      CHROMA_PORT: "8000"
+    volumes:
+      - ./apps/api:/app
+
+  celery_analytics:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: celery -A app.tasks.celery_app worker --loglevel=info -Q analytics --concurrency=1 --max-tasks-per-child=5 --pool=solo
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - ./apps/api/.env
     environment:
@@ -133,6 +181,7 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      target: dev
     command: npx next dev
     ports:
       - "3000:3000"

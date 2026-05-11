@@ -12,6 +12,7 @@ from app.core.security import get_current_user
 from app.models.exam import Exam, ExamSession, Question
 from app.models.group import GroupMember
 from app.services import exam_service
+from app.services.analytics_service import track_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["exams"])
@@ -127,6 +128,7 @@ async def generate_exam(
             db=db,
             group_id=group_id,
             creator_id=current_user.id,
+            org_id=current_user.org_id,
             title=body.title,
             question_count=body.question_count,
             difficulty=body.difficulty,
@@ -370,6 +372,12 @@ async def start_session(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    await track_event(
+        user_id=current_user.id,
+        event_type="exam.started",
+        resource_type="exam",
+        resource_id=exam_id,
+    )
     return result
 
 
@@ -432,6 +440,16 @@ async def submit_exam(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    score_pct = None
+    if isinstance(result, dict) and result.get("total"):
+        score_pct = round((result.get("score", 0) / result["total"]), 4)
+    await track_event(
+        user_id=current_user.id,
+        event_type="exam.submitted",
+        resource_type="exam",
+        resource_id=exam_id,
+        metadata={"session_id": session_id, "score": score_pct},
+    )
     return result
 
 

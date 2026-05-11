@@ -120,6 +120,7 @@ async def generate_set(
     db: AsyncSession,
     group_id: str,
     user_id: str,
+    org_id: str | None,
     title: str,
     file_ids: list[str] | None = None,
     max_cards: int = 40,
@@ -153,7 +154,7 @@ async def generate_set(
         resolved_ids = [f.id for f in files]
 
     # Fetch & sample chunks
-    all_chunks = vector_store.get_all_chunks_for_files(group_id, resolved_ids)
+    all_chunks = vector_store.get_all_chunks_for_files(resolved_ids, org_id, user_id)
     if not all_chunks:
         raise ValueError("No indexed content found. Files may still be processing.")
 
