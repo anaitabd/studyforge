@@ -37,6 +37,19 @@ async def verify_group_member(group_id: str, user_id: str, db: AsyncSession):
     return member
 
 
+def _file_type(mime_type: str) -> str:
+    mt = (mime_type or "").lower()
+    if mt == "application/pdf":
+        return "pdf"
+    if "wordprocessingml" in mt or mt == "application/msword":
+        return "docx"
+    if "presentationml" in mt or mt == "application/vnd.ms-powerpoint":
+        return "pptx"
+    if mt.startswith("text/"):
+        return "txt"
+    return "file"
+
+
 @router.get(
     "/groups/{group_id}/files",
     responses={403: {"description": "Not a member of this group"}},
@@ -47,20 +60,26 @@ async def list_files(
     db: DB,
     limit: int = 50,
     offset: int = 0,
+    status: str | None = None,
 ):
     await verify_group_member(group_id, current_user.id, db)
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+
+    base_filter = [File.group_id == group_id]
+    if status:
+        base_filter.append(File.status == status)
+
     result = await db.execute(
         select(File)
-        .where(File.group_id == group_id)
+        .where(*base_filter)
         .order_by(File.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
     files = result.scalars().all()
     total_result = await db.execute(
-        select(func.count(File.id)).where(File.group_id == group_id)
+        select(func.count(File.id)).where(*base_filter)
     )
     total = int(total_result.scalar_one() or 0)
     return {
@@ -70,6 +89,7 @@ async def list_files(
                 "group_id": f.group_id,
                 "name": f.name,
                 "mime_type": f.mime_type,
+                "file_type": _file_type(f.mime_type),
                 "size": f.size_bytes,
                 "size_bytes": f.size_bytes,
                 "status": f.status,

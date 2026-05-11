@@ -126,17 +126,22 @@ services:
       R2_ENDPOINT: http://minio:9000
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
+    volumes:
+      - ./apps/api:/app
 
   web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+    command: npx next dev
     ports:
       - "3000:3000"
     depends_on:
       - api
     env_file:
       - ./apps/web/.env
+    environment:
+      NODE_ENV: development
     volumes:
       - ./apps/web:/app
       - /app/node_modules

@@ -11,6 +11,8 @@ from app.models.room import StudyRoom, RoomMember
 from app.models.notification import Notification, Announcement, Subscription, ReadingEvent
 from app.models.learning_path import LearningPath, LearningPathModule, LearningPathProgress
 from app.models.slide_deck import SlideDeck, Slide, SlideProgress, SlideQuizAnswer
+from app.models.audit_log import AuditLog
+from app.models.feature_flag import FeatureFlag
 
 __all__ = [
     "User", "School",
@@ -23,4 +25,5 @@ __all__ = [
     "Notification", "Announcement", "Subscription", "ReadingEvent",
     "LearningPath", "LearningPathModule", "LearningPathProgress",
     "SlideDeck", "Slide", "SlideProgress", "SlideQuizAnswer",
+    "AuditLog", "FeatureFlag",
 ]

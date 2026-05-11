@@ -39,8 +39,10 @@ class Subscription(Base):
     school_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     plan: Mapped[str] = mapped_column(String(50))
     stripe_sub_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="active")
     period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

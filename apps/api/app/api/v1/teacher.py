@@ -10,8 +10,11 @@ from app.core.security import get_current_user
 from app.models.chat import ChatMessage
 from app.models.exam import Exam, ExamSession
 from app.models.file import File
+from app.models.flashcard import FlashcardSet
 from app.models.group import Group, GroupMember
+from app.models.learning_path import LearningPath
 from app.models.notification import ReadingEvent
+from app.models.slide_deck import SlideDeck
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -203,5 +206,102 @@ async def get_group_analytics(
         "exams": exam_summaries,
         "files": file_summaries,
     }
+
+
+@router.get("/groups/{group_id}/generate-history")
+async def get_generate_history(
+    group_id: str,
+    current_user: CurrentUser,
+    db: DB,
+):
+    membership = (await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == current_user.id,
+        )
+    )).scalar_one_or_none()
+    if not membership or membership.role not in ("owner", "teacher"):
+        raise HTTPException(status_code=403, detail="Teacher or owner access required")
+
+    batch = 7  # fetch slightly more than needed per type before trimming to 20 total
+
+    exams = (await db.execute(
+        select(Exam)
+        .where(Exam.group_id == group_id)
+        .order_by(Exam.created_at.desc())
+        .limit(batch)
+    )).scalars().all()
+
+    flashcard_sets = (await db.execute(
+        select(FlashcardSet)
+        .where(FlashcardSet.group_id == group_id)
+        .order_by(FlashcardSet.created_at.desc())
+        .limit(batch)
+    )).scalars().all()
+
+    paths = (await db.execute(
+        select(LearningPath)
+        .where(LearningPath.group_id == group_id)
+        .order_by(LearningPath.created_at.desc())
+        .limit(batch)
+    )).scalars().all()
+
+    decks = (await db.execute(
+        select(SlideDeck)
+        .where(SlideDeck.group_id == group_id)
+        .order_by(SlideDeck.created_at.desc())
+        .limit(batch)
+    )).scalars().all()
+
+    items: list[dict] = []
+
+    for e in exams:
+        file_ids = e.config.get("file_ids") if isinstance(e.config, dict) else None
+        items.append({
+            "id": e.id,
+            "type": "exam",
+            "title": e.title,
+            "status": "ready",
+            "file_count": len(file_ids) if file_ids else 0,
+            "created_at": e.created_at.isoformat(),
+            "result_url": f"/groups/{group_id}/exams/{e.id}",
+        })
+
+    for s in flashcard_sets:
+        items.append({
+            "id": s.id,
+            "type": "flashcards",
+            "title": s.title,
+            "status": "ready",
+            "file_count": 1 if s.file_id else 0,
+            "created_at": s.created_at.isoformat(),
+            "result_url": f"/groups/{group_id}/flashcards/{s.id}",
+        })
+
+    for p in paths:
+        items.append({
+            "id": p.id,
+            "type": "learning_path",
+            "title": p.title,
+            "status": "ready",
+            "file_count": len(p.file_ids or []),
+            "created_at": p.created_at.isoformat(),
+            "result_url": f"/groups/{group_id}/learning-paths/{p.id}",
+        })
+
+    for d in decks:
+        status = "processing" if d.status == "generating" else d.status
+        items.append({
+            "id": d.id,
+            "type": "slides",
+            "title": d.title,
+            "status": status,
+            "file_count": len(d.file_ids or []),
+            "created_at": d.created_at.isoformat(),
+            "result_url": f"/groups/{group_id}/slides/{d.id}",
+        })
+
+    items.sort(key=lambda x: x["created_at"], reverse=True)
+    return items[:20]
 
 

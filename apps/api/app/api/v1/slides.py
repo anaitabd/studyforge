@@ -261,6 +261,7 @@ async def get_deck(
         "language": deck.language,
         "status": deck.status,
         "error_message": deck.error_message,
+        "pptx_url": deck.pptx_url,
         "file_ids": deck.file_ids or [],
         "slide_count": deck.slide_count,
         "created_at": deck.created_at.isoformat(),
