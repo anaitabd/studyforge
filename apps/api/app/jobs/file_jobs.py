@@ -41,7 +41,7 @@ async def process_file(file_id: str, r2_key: str, mime_type: str, session_factor
     tmp_path = await storage_service.download_to_temp(r2_key)
 
     try:
-        pages = file_processor.extract_text(tmp_path, mime_type)
+        pages = await file_processor.extract_text_async(tmp_path, mime_type, file_name)
         if not pages:
             raise ValueError("No text could be extracted from file")
 
