@@ -29,7 +29,7 @@ TEXT_GRAY = RGBColor(0x37, 0x41, 0x51)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 SUBTLE_GRAY = RGBColor(0x9C, 0xA3, 0xAF)
 MAX_SLIDES_PER_CLUSTER = 3
-SLIDE_ENRICH_CONCURRENCY = 1
+SLIDE_ENRICH_CONCURRENCY = 4
 SLIDE_ENRICH_TIMEOUT_SECONDS = 45
 
 
@@ -530,7 +530,12 @@ class SlideService:
             "- `bullets`: 3-5 short visual phrases (NOT full sentences). These appear as the slide's headline points.\n"
             "- `examples`: 1-2 concrete worked examples (specific numbers, real scenarios, or runnable code).\n"
             "  Each example body may use markdown including code blocks.\n"
-            "- `speaker_notes`: 3-5 sentences a presenter would say out loud — colloquial, not a re-summary.\n"
+            "- `speaker_notes`: Teaching script for the instructor (3-5 sentences).\n"
+            "  RULE: Speaker notes must NOT restate the bullets. They must add:\n"
+            "    - A concrete real-world example or analogy\n"
+            "    - A common student misconception to address\n"
+            "    - A transition cue or teaching tip\n"
+            "  If you find yourself repeating a bullet point, stop and write something different.\n"
             "- `quiz`: a single multiple-choice question answerable from the content above. "
             "Exactly 4 plausible options; only one correct. Rationale explains why the right answer is right.\n\n"
             f"Language: {lang}.\n\n"

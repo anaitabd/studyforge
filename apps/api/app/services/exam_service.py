@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import random
 import uuid
@@ -124,6 +125,16 @@ def _build_generation_prompt(
 
     lang_instruction = _LANGUAGE_INSTRUCTIONS.get(language, _LANGUAGE_INSTRUCTIONS["auto"])
 
+    distractor_section = ""
+    if question_type in ("mcq_single", "mcq_multiple", "fill_blank"):
+        distractor_section = (
+            "\nDISTRACTOR RULES (MCQ only):\n"
+            "- Each distractor must be plausible — same domain, same specificity level as the correct answer.\n"
+            "- Distractors must be grammatically parallel to the correct answer.\n"
+            "- Never use \"None of the above\", \"All of the above\", or obviously absurd options.\n"
+            "- A student who has partially studied should not be able to eliminate distractors by common sense alone.\n"
+        )
+
     return (
         f"Generate exactly {count} {question_type.replace('_', ' ')} questions "
         f"based ONLY on the following course material excerpts.\n\n"
@@ -139,7 +150,8 @@ def _build_generation_prompt(
         "- Make distractors plausible but clearly wrong to a student who read the material.\n"
         "- Vary the question style (definition, application, comparison, consequence).\n"
         "- Ensure broad coverage: avoid repeating near-identical concepts across questions.\n"
-        "- Include at least 30% higher-order questions (application, analysis, or troubleshooting) when source allows.\n\n"
+        "- Include at least 30% higher-order questions (application, analysis, or troubleshooting) when source allows.\n"
+        f"{distractor_section}\n"
         f"COURSE MATERIAL:\n\n{context}"
     )
 
@@ -196,23 +208,34 @@ async def generate_exam(
     target_chunks = min(len(all_chunks), max(8, min(question_count + 4, 16)))
     sampled = _sample_chunks(all_chunks, target_chunks)
 
-    schema = _SCHEMA_BY_TYPE.get(question_type, _MCQ_SINGLE_SCHEMA)
-    prompt = _build_generation_prompt(
-        sampled, question_count, difficulty, question_type, language, topic_focus
-    )
-
     logger.info(
         f"Generating {question_count} {difficulty} {question_type} questions "
         f"for group {group_id} using {len(sampled)} chunks"
     )
 
-    raw_questions = await ai_service.generate_structured_json(
-        prompt=prompt,
-        schema_description=schema,
-        max_tokens=min(8192, max(4096, question_count * 650)),
-    )
+    # One task per question type — prevents schema confusion on mixed-type exams.
+    type_distribution = {question_type: question_count}
+    tasks = [
+        ai_service.generate_structured_json(
+            prompt=_build_generation_prompt(
+                sampled, count, difficulty, q_type, language, topic_focus
+            ),
+            schema_description=_SCHEMA_BY_TYPE.get(q_type, _MCQ_SINGLE_SCHEMA),
+            max_tokens=min(8192, max(4096, count * 650)),
+        )
+        for q_type, count in type_distribution.items()
+    ]
 
-    if not isinstance(raw_questions, list):
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    raw_questions: list = []
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning(f"Question generation partial failure: {result}")
+            continue
+        if isinstance(result, list):
+            raw_questions.extend(result)
+
+    if not raw_questions:
         raise ValueError("AI returned unexpected format for questions.")
 
     # Persist exam

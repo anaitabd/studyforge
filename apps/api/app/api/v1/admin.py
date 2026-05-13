@@ -475,7 +475,7 @@ async def suspend_user(
         action="suspend_user",
         reason=body.reason,
         ip=request.client.host if request.client else None,
-        metadata={"clerk_id": target.clerk_id, "email": target.email},
+        meta={"clerk_id": target.clerk_id, "email": target.email},
     )
     db.add(log)
     await db.commit()
@@ -535,7 +535,7 @@ async def update_feature_flag(
         target_id=None,
         action="update_feature_flag",
         ip=request.client.host if request.client else None,
-        metadata={"flag": key, "old_enabled": old_enabled, "new_enabled": body.enabled},
+        meta={"flag": key, "old_enabled": old_enabled, "new_enabled": body.enabled},
     )
     db.add(log)
     await db.commit()

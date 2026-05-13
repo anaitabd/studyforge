@@ -70,7 +70,7 @@ export default function OrgDashboardPage() {
                   </div>
                 </div>
                 <span className="text-xs text-destructive font-medium">
-                  {s.days_inactive}d inactive
+                  {(s.reason_flags ?? []).join(", ") || "at risk"}
                 </span>
               </div>
             ))}
@@ -93,7 +93,7 @@ export default function OrgDashboardPage() {
           <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
             {(cohortsKpis ?? []).map((c) => (
               <div key={c.cohort_id} className="flex items-center justify-between px-4 py-3">
-                <p className="text-sm font-medium text-primary">{c.cohort_name}</p>
+                <p className="text-sm font-medium text-primary">{c.name}</p>
                 <div className="flex items-center gap-6 text-xs text-slate-500">
                   <span><b className="text-primary">{c.dau}</b> active today</span>
                   <span>

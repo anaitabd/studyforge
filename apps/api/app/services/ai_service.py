@@ -457,7 +457,7 @@ class AIService:
         for attempt in range(3):
             try:
                 raw = await self.provider.complete(
-                    {"model": self.chat_model, "messages": messages, "temperature": 0.4, "max_tokens": max_tokens, "stream": False}
+                    {"model": self.chat_model, "messages": messages, "temperature": 0.1, "max_tokens": max_tokens, "stream": False}
                 )
                 raw = raw.strip()
                 if raw.startswith("```"):
@@ -481,11 +481,44 @@ class AIService:
         ]
         try:
             result = await self.provider.complete(
-                {"model": self.chat_model, "messages": messages, "temperature": 0.0, "max_tokens": 10, "stream": False}
+                {"model": self.chat_model, "messages": messages, "temperature": 0.0, "max_tokens": 20, "stream": False}
             )
-            return "unsafe" not in result.lower()
+            raw = result.strip().upper()
+            if "UNSAFE" in raw:
+                return False
+            return True
         except Exception:
             return True
+
+    async def describe_image(
+        self,
+        image_b64: str,
+        media_type: str = "image/jpeg",
+        prompt: str = "Describe this image in detail.",
+    ) -> str:
+        """Send a base64-encoded image to the vision model and return a text description."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{media_type};base64,{image_b64}",
+                            "detail": "high",
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        response = await self.chat_completion(
+            messages=messages,
+            stream=False,
+            temperature=0.1,
+            max_tokens=1000,
+        )
+        return response.strip() if isinstance(response, str) else ""
 
 
 ai_service = AIService()

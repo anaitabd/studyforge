@@ -171,6 +171,7 @@ async def list_decks(
             "slide_count": d.slide_count,
             "language": d.language,
             "created_at": d.created_at.isoformat(),
+            "pptx_url": d.pptx_url,
             "my_progress_pct": pct,
             "my_completed_slides": completed,
             "my_current_slide_index": prog.current_slide_index if prog else 0,

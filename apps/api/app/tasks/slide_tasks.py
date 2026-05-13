@@ -16,7 +16,7 @@ def _make_task_session_factory():
     return engine, factory
 
 
-@celery_app.task(name="app.tasks.slide_tasks.generate_slides", bind=True, max_retries=2)
+@celery_app.task(name="app.tasks.slide_tasks.generate_slides", bind=True, max_retries=3)
 def generate_slides_task(self, deck_id: str):
     async def _run():
         engine, factory = _make_task_session_factory()

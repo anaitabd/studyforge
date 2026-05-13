@@ -8,12 +8,12 @@ export interface OrgKpisOverview {
   wau: number;
   avg_exam_score: number | null;
   at_risk_count: number;
-  total_members: number;
+  completion_rate: number | null;
 }
 
 export interface CohortKpiSummary {
   cohort_id: string;
-  cohort_name: string;
+  name: string;
   dau: number;
   avg_exam_score: number | null;
   at_risk_count: number;
@@ -25,7 +25,7 @@ export interface AtRiskStudent {
   email: string;
   avatar_url: string | null;
   last_active: string | null;
-  days_inactive: number;
+  reason_flags: string[];
 }
 
 export interface StudentTimelineEvent {
@@ -70,8 +70,8 @@ export function useAtRiskStudents(slug: string) {
   return useQuery<AtRiskStudent[]>({
     queryKey: ["at-risk-students", slug],
     queryFn: async () => {
-      const data = await apiGet<{ students: AtRiskStudent[] }>(`/api/v1/org/${slug}/kpis/at-risk`);
-      return data.students ?? data;
+      const data = await apiGet<{ at_risk: AtRiskStudent[]; total: number }>(`/api/v1/org/${slug}/kpis/at-risk`);
+      return data.at_risk ?? [];
     },
     enabled: !!slug,
     staleTime: 60_000,

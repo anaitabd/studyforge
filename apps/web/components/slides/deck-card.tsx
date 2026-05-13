@@ -70,7 +70,7 @@ export function DeckCard({
       <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         {isReady && (
           <a
-            href={getDeckPptxUrl(groupId, deck.id)}
+            href={deck.pptx_url ?? getDeckPptxUrl(groupId, deck.id)}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}

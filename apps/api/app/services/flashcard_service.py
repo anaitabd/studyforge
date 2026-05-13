@@ -17,7 +17,8 @@ _CARD_SCHEMA = (
     "Array of objects, each with: "
     '"front" (a concise question, term, or prompt — one sentence max), '
     '"back" (the answer, definition, or explanation — 1-3 sentences), '
-    '"source_passage" (verbatim short excerpt from the provided text that supports this card)'
+    '"source_passage" (a short passage closely paraphrased from the material above '
+    '— must reflect content actually present in the provided text, not invented)'
 )
 
 # SM-2 quality values per rating
@@ -106,14 +107,44 @@ def _build_generation_prompt(chunks: list[dict], max_cards: int, language: str) 
         "Focus on: key terms and definitions, important formulas, dates and events, "
         "core concepts, and cause-effect relationships.\n\n"
         "Rules:\n"
-        "- front must be a clear, specific question or term (not vague like 'What is X?').\n"
+        "- front: must be specific and testable.\n"
+        "  BAD:  \"What is entropy?\"\n"
+        "  GOOD: \"What happens to the available energy in a closed system as entropy increases?\"\n"
+        "  BAD:  \"What is photosynthesis?\"\n"
+        "  GOOD: \"Which molecule is produced by photosynthesis that plants use for energy storage?\"\n"
         "- back must directly answer the front in 1-3 sentences.\n"
-        "- source_passage must be a short verbatim quote from the material below.\n"
+        "- source_passage must be a short passage closely paraphrased from the material below.\n"
         "- Do NOT repeat the same concept twice.\n"
         "- Do NOT generate cards for trivial facts (page numbers, author names, etc.).\n"
         f"- {lang_instruction}\n\n"
         f"COURSE MATERIAL:\n\n{context}"
     )
+
+
+def _dedup_cards(raw_cards: list) -> list:
+    """Remove cards whose front is >75% similar to a previously seen front."""
+    seen_fronts: list[str] = []
+    deduped = []
+    for card in raw_cards:
+        if not isinstance(card, dict):
+            continue
+        front = card.get("front", "").lower().strip()
+        if not front:
+            continue
+        front_tokens = set(front.split())
+        is_duplicate = False
+        for seen in seen_fronts:
+            seen_tokens = set(seen.split())
+            if not seen_tokens:
+                continue
+            overlap = len(front_tokens & seen_tokens) / max(len(front_tokens), len(seen_tokens), 1)
+            if overlap > 0.75:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            seen_fronts.append(front)
+            deduped.append(card)
+    return deduped
 
 
 async def generate_set(
@@ -174,6 +205,8 @@ async def generate_set(
 
     if not isinstance(raw_cards, list):
         raise ValueError("AI returned unexpected format for flashcards.")
+
+    raw_cards = _dedup_cards(raw_cards)
 
     # Persist set
     set_id = str(uuid.uuid4())

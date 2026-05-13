@@ -9,6 +9,9 @@ export interface Group {
   description: string | null;
   owner_id: string;
   plan: string;
+  color: string | null;
+  my_role: string | null;
+  is_archived: boolean;
   file_count: number;
   member_count: number;
   created_at: string;

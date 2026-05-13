@@ -12,6 +12,7 @@ export interface GroupFile {
   mime_type: string;
   status: "uploading" | "processing" | "ready" | "error";
   error_message: string | null;
+  indexed_at: string | null;
   created_at: string;
 }
 

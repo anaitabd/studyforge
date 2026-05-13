@@ -91,7 +91,7 @@ async def create_org(body: OrgCreate, current_user: CurrentUser, db: DB):
 
     user = (await db.execute(select(User).where(User.id == current_user.id))).scalar_one()
     user.org_id = org.id
-    user.account_type = "organization"
+    user.account_type = "org"
 
     await db.commit()
     await db.refresh(org)

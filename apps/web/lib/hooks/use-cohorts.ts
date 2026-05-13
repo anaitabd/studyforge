@@ -49,10 +49,13 @@ export function useCohortMembers(slug: string, cohortId: string) {
   return useQuery<CohortMember[]>({
     queryKey: ["cohort-members", slug, cohortId],
     queryFn: async () => {
-      const data = await apiGet<{ members: CohortMember[] }>(
-        `/api/v1/org/${slug}/cohorts/${cohortId}/members`
-      );
-      return data.members ?? data;
+      const data = await apiGet<{
+        teachers: Omit<CohortMember, "role" | "joined_at">[];
+        students: Omit<CohortMember, "role">[];
+      }>(`/api/v1/org/${slug}/cohorts/${cohortId}`);
+      const teachers: CohortMember[] = (data.teachers ?? []).map((t) => ({ ...t, role: "teacher" as const, joined_at: "" }));
+      const students: CohortMember[] = (data.students ?? []).map((s) => ({ ...s, role: "student" as const }));
+      return [...teachers, ...students];
     },
     enabled: !!slug && !!cohortId,
     staleTime: 30_000,

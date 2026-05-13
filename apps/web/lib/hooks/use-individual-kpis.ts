@@ -5,25 +5,21 @@ import { apiGet, apiPost, apiPatch } from "@/lib/api";
 
 export interface PersonalKpis {
   active_minutes_today: number;
-  cards_due: number;
+  cards_due_today: number;
   cards_overdue: number;
-  retention_rate: number | null;
-  exams_taken: number;
-  avg_exam_score: number | null;
-  score_trend: number[];
+  flashcard_retention_rate: number | null;
+  exam_score_trend: number[];
 }
 
 export interface StreakData {
-  current_streak: number;
-  longest_streak: number;
-  has_activity_today: boolean;
+  current: number;
+  longest: number;
+  today_active: boolean;
   last_active_date: string | null;
 }
 
-export interface WeakArea {
-  concept: string;
-  frequency: number;
-}
+// Backend returns a flat string[] — no frequency data available yet.
+export type WeakArea = string;
 
 export interface StudyGoal {
   id: string;
@@ -54,11 +50,11 @@ export function useStreak() {
 }
 
 export function useWeakAreas() {
-  return useQuery<WeakArea[]>({
+  return useQuery<string[]>({
     queryKey: ["weak-areas"],
     queryFn: async () => {
-      const data = await apiGet<{ weak_areas: WeakArea[] }>("/api/v1/me/weak-areas");
-      return data.weak_areas ?? data;
+      const data = await apiGet<{ weak_areas: string[] }>("/api/v1/me/weak-areas");
+      return data.weak_areas ?? [];
     },
     staleTime: 5 * 60_000,
   });

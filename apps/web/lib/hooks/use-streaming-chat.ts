@@ -61,7 +61,7 @@ export function useStreamingChat(groupId: string, initial: ChatMessage[] = []) {
       } finally {
         setIsStreaming(false);
         abortRef.current = null;
-        qc.invalidateQueries({ queryKey: ["chat", groupId] });
+        qc.invalidateQueries({ queryKey: ["chat-history", groupId] });
       }
     },
     [groupId, isStreaming, qc],

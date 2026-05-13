@@ -153,7 +153,7 @@ export default function SlideDeckPage({
           <ArrowLeft size={14} /> Back to slides
         </Link>
         <a
-          href={getDeckPptxUrl(groupId, deckId)}
+          href={deck.pptx_url ?? getDeckPptxUrl(groupId, deckId)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-accent hover:text-accent"

@@ -22,6 +22,7 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    task_acks_late=True,
     task_routes={
         "app.tasks.file_tasks.*": {"queue": "files"},
         "app.tasks.notification_tasks.*": {"queue": "notifications"},
