@@ -11,6 +11,12 @@ from app.models.exam import Exam, ExamSession, Question
 from app.models.file import File
 from app.services.ai_service import ai_service
 from app.services.vector_store import vector_store
+from app.services.curriculum_service import (
+    detect_subject,
+    detect_level,
+    get_question_types_for_subject,
+    distribute_points,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -161,10 +167,13 @@ async def generate_exam(
     group_id: str,
     creator_id: str,
     org_id: str | None,
-    title: str,
+    title: str | None = None,
     question_count: int = 10,
     difficulty: str = "mixed",
-    question_type: str = "mcq_single",
+    question_type: str = "mcq_single",   # kept for backward compat
+    question_types: list[str] | None = None,
+    subject_area: str | None = None,
+    level: str | None = None,
     language: str = "auto",
     file_ids: list[str] | None = None,
     topic_focus: str | None = None,
@@ -203,18 +212,48 @@ async def generate_exam(
     if not all_chunks:
         raise ValueError("No indexed content found. The files may still be processing.")
 
+    # Detect subject and level from content if not provided
+    combined_text = " ".join(c.get("text", "") for c in all_chunks[:20])
+    if subject_area is None:
+        subject_area = detect_subject(combined_text)
+    if level is None:
+        level = detect_level(combined_text)
+
+    # Resolve question types
+    if question_types is None:
+        if subject_area and subject_area != "general":
+            question_types = get_question_types_for_subject(subject_area)
+        else:
+            question_types = [question_type]
+
+    # Auto-title if not provided
+    if not title:
+        from datetime import date as _date
+        subj_str = f" – {subject_area.replace('_', ' ').title()}" if subject_area and subject_area != "general" else ""
+        level_str = f" {level}" if level else ""
+        title = f"Exam{subj_str}{level_str} – {_date.today().strftime('%b %d')}"
+
     # Sample proportionally while keeping the LLM prompt bounded. Large PDFs can
     # otherwise turn exam generation into a multi-minute request.
     target_chunks = min(len(all_chunks), max(8, min(question_count + 4, 16)))
     sampled = _sample_chunks(all_chunks, target_chunks)
 
     logger.info(
-        f"Generating {question_count} {difficulty} {question_type} questions "
-        f"for group {group_id} using {len(sampled)} chunks"
+        f"Generating {question_count} {difficulty} {question_types} questions "
+        f"for group {group_id} (subject={subject_area}, level={level}) using {len(sampled)} chunks"
     )
 
+    # Distribute question_count across types
+    n_types = len(question_types)
+    base = question_count // n_types
+    rem = question_count % n_types
+    type_distribution = {
+        qt: base + (1 if i < rem else 0)
+        for i, qt in enumerate(question_types)
+    }
+    type_distribution = {k: v for k, v in type_distribution.items() if v > 0}
+
     # One task per question type — prevents schema confusion on mixed-type exams.
-    type_distribution = {question_type: question_count}
     tasks = [
         ai_service.generate_structured_json(
             prompt=_build_generation_prompt(
@@ -227,16 +266,22 @@ async def generate_exam(
     ]
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    raw_questions: list = []
-    for result in results:
+    typed_raw_questions: list[tuple[str, dict]] = []
+    for (q_type, _), result in zip(type_distribution.items(), results):
         if isinstance(result, Exception):
-            logger.warning(f"Question generation partial failure: {result}")
+            logger.warning(f"Question generation partial failure for {q_type}: {result}")
             continue
         if isinstance(result, list):
-            raw_questions.extend(result)
+            for q in result:
+                if isinstance(q, dict):
+                    typed_raw_questions.append((q_type, q))
 
-    if not raw_questions:
+    if not typed_raw_questions:
         raise ValueError("AI returned unexpected format for questions.")
+
+    # Assign /20 point values proportional to question type weights
+    raw_for_distribution = [{"type": qt, **q} for qt, q in typed_raw_questions]
+    distributed = distribute_points(raw_for_distribution, total=20.0)
 
     # Persist exam
     exam_id = str(uuid.uuid4())
@@ -248,41 +293,53 @@ async def generate_exam(
         config={
             "question_count": question_count,
             "difficulty": difficulty,
-            "question_type": question_type,
+            "question_types": question_types,
             "language": language,
             "file_ids": resolved_file_ids,
             "topic_focus": topic_focus,
         },
         status="draft",
         attempt_limit=1,
+        subject_area=subject_area,
+        level=level,
+        total_points=20.0,
+        grading_mode="auto",
     )
     db.add(exam)
 
     # Persist questions
     questions_out = []
-    for i, q in enumerate(raw_questions):
+    for i, q in enumerate(distributed):
         if not isinstance(q, dict):
             continue
-        if not all(k in q for k in ("question", "options", "correct_answer")):
+        q_type = q.get("type", question_types[0] if question_types else "mcq_single")
+        if q_type in ("mcq_single", "mcq_multiple", "true_false", "fill_blank"):
+            if not all(k in q for k in ("question", "options", "correct_answer")):
+                continue
+        elif "question" not in q:
             continue
 
         q_id = str(uuid.uuid4())
         question = Question(
             id=q_id,
             exam_id=exam_id,
-            type=question_type,
+            type=q_type,
             content=q.get("question", ""),
             options=q.get("options", {}),
-            correct_answer=q.get("correct_answer", "A"),
+            correct_answer=q.get("correct_answer", ""),
             explanation=q.get("explanation", ""),
             source_passage=q.get("source_passage", ""),
             difficulty=q.get("difficulty", difficulty if difficulty != "mixed" else "medium"),
             order_index=i,
+            points=q.get("points", 1.0),
+            subject_area=subject_area,
+            rubric=None,
+            construction_steps=q.get("construction_steps") if isinstance(q.get("construction_steps"), (dict, list)) else None,
         )
         db.add(question)
         questions_out.append({
             "id": q_id,
-            "type": question_type,
+            "type": q_type,
             "content": question.content,
             "options": question.options,
             "correct_answer": question.correct_answer,
@@ -290,6 +347,7 @@ async def generate_exam(
             "source_passage": question.source_passage,
             "difficulty": question.difficulty,
             "order_index": i,
+            "points": question.points,
         })
 
     await db.commit()
@@ -300,6 +358,9 @@ async def generate_exam(
         "title": title,
         "status": "draft",
         "config": exam.config,
+        "subject_area": subject_area,
+        "level": level,
+        "total_points": 20.0,
         "question_count": len(questions_out),
         "questions": questions_out,
         "created_at": exam.created_at.isoformat() if exam.created_at else None,
