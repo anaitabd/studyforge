@@ -66,8 +66,8 @@ class RAGService:
                 yield {"type": "done"}
                 return
 
-            # 4. Rerank → keep top 5
-            top_chunks = reranker.rerank(rewritten, raw_chunks, top_k=5)
+            # 4. Rerank → keep top 5 (NIM if API key set, else similarity fallback)
+            top_chunks = await reranker.async_rerank(rewritten, raw_chunks, top_k=5)
 
             # 5. Build context string with source headers
             context_parts = []

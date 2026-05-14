@@ -29,11 +29,12 @@ class Settings(BaseSettings):
     OLLAMA_CHAT_MODEL: str = "llama3.2:3b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
 
-    # Legacy NVIDIA settings (kept for backward compat)
+    # NVIDIA NIM — embeddings + reranking
     NVIDIA_API_KEY: str = ""
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_CHAT_MODEL: str = "meta/llama-3.3-70b-instruct"
     NVIDIA_EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
+    NVIDIA_RERANK_MODEL: str = "nvidia/nv-rerankqa-mistral-4b-v3"
 
     # Legacy Bedrock settings (kept for backward compat)
     AWS_REGION: str = "us-east-1"

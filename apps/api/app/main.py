@@ -49,17 +49,10 @@ async def lifespan(app: FastAPI):
     _log_chroma_status()
     startup_state["ready"] = False
 
-    from app.services.reranker import _get_model
+    from app.services.reranker import reranker  # noqa: F401 — import triggers singleton init
 
-    def _warmup_reranker() -> None:
-        try:
-            _get_model()
-            startup_state["ready"] = True
-            logger.info("Reranker warmup complete")
-        except Exception:
-            logger.exception("Reranker warmup failed")
-
-    asyncio.get_event_loop().run_in_executor(None, _warmup_reranker)
+    startup_state["ready"] = True
+    logger.info("Reranker warmup complete")
     yield
     logger.info("Shutting down StudyForge API")
 
