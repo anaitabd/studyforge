@@ -3,18 +3,19 @@
 import { use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, Presentation, ArrowLeft } from "lucide-react";
+import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, Presentation, ArrowLeft, Sparkles } from "lucide-react";
 import { useGroup } from "@/lib/hooks/useApi";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { key: "chat", label: "Chat", icon: MessageSquare },
-  { key: "", label: "Files", icon: FileText },
-  { key: "learning-paths", label: "Learning paths", icon: Map },
-  { key: "slides", label: "Slides", icon: Presentation },
-  { key: "exams", label: "Exams", icon: GraduationCap },
-  { key: "flashcards", label: "Flashcards", icon: BookOpen },
-  { key: "members", label: "Members", icon: Users },
+  { key: "chat", label: "Chat", icon: MessageSquare, teacherOnly: false },
+  { key: "", label: "Files", icon: FileText, teacherOnly: false },
+  { key: "learning-paths", label: "Learning paths", icon: Map, teacherOnly: false },
+  { key: "slides", label: "Slides", icon: Presentation, teacherOnly: false },
+  { key: "exams", label: "Exams", icon: GraduationCap, teacherOnly: false },
+  { key: "flashcards", label: "Flashcards", icon: BookOpen, teacherOnly: false },
+  { key: "members", label: "Members", icon: Users, teacherOnly: false },
+  { key: "generate", label: "Generate", icon: Sparkles, teacherOnly: true },
 ];
 
 export default function GroupLayout({ children, params }: { children: React.ReactNode; params: Promise<{ groupId: string }> }) {
@@ -35,7 +36,9 @@ export default function GroupLayout({ children, params }: { children: React.Reac
 
       <div className="border-b border-slate-200 mb-6 overflow-x-auto">
         <nav className="flex gap-1 -mb-px">
-          {TABS.map(({ key, label, icon: Icon }) => {
+          {TABS.filter(({ teacherOnly }) =>
+            !teacherOnly || ["owner", "teacher"].includes(group?.my_role ?? "")
+          ).map(({ key, label, icon: Icon }) => {
             const href = `/groups/${groupId}${key ? "/" + key : ""}`;
             const active = key === "" ? pathname === href : pathname.startsWith(href);
             return (

@@ -21,8 +21,8 @@ export interface Flashcard {
   source_passage: string | null;
   progress?: {
     ease_factor: number;
-    interval: number;
-    repetitions: number;
+    interval_days: number;
+    reps: number;
     due_date: string;
   } | null;
 }

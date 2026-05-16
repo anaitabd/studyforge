@@ -16,14 +16,30 @@ class Settings(BaseSettings):
     APP_ENV: AppEnv = AppEnv.local
     DATABASE_URL: str = "postgresql+asyncpg://studyforge:studyforge@localhost:5432/studyforge"
     REDIS_URL: str = "redis://localhost:6379/0"
+    # OpenAI-compatible provider (default — works with AWS Bedrock, Azure, or any OpenAI-compat endpoint)
+    OPENAI_API_KEY: str = "bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29tLz9BY3Rpb249Q2FsbFdpdGhCZWFyZXJUb2tlbiZYLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFTSUEzMkFRVkpDVjdQS0dJTTZPJTJGMjAyNjA1MTAlMkZ1cy1lYXN0LTElMkZiZWRyb2NrJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjA1MTBUMTQ0NDExWiZYLUFtei1FeHBpcmVzPTQzMjAwJlgtQW16LVNlY3VyaXR5LVRva2VuPUlRb0piM0pwWjJsdVgyVmpFRGNhQ1hWekxXVmhjM1F0TVNKSU1FWUNJUURGQU01dUFrNXVad3dJRHN1MWJuaW1paWhkTVVEOG5zNzJFekhDZHJSaHJnSWhBUGMwJTJCOWZnV0VnZU5zVElRSHVJcXJQdU04WHhJQ1BJWVVNakhwT2FxYk1WS3NJRENBQVFBQm9NT0RFeE56Z3pOelk0TWpNMUlnemVmZDVUNmpjVE9LMk5GQlVxbndQNkdNd3pSVHhQOXVNbmpuS3RNJTJCYUlWU3VDQ3lWNVBlUjBmcUdBWGc3NHBjSGRuY1o3aXdxVnRiMG0zUzBJUjRiclhBdGQlMkJTelc0RWRWV01zQkFIdVJsU3JJUFdmWnFVRnE1ZFQyejAlMkYyJTJCTmI5Sk9VdyUyRlBSR09UeVdIcXl4NHQ0NmVEWVNHTzNiRUFneDdNZnB4SU1Oeng1WEZhV01iZ0NySDNUUDJta3JJR2JZbklCZWp3ZHQ3VHB1ckR1MGoyV003ZVpOaDlEc1ptdFZSdElRVUk5NTllWUcwbiUyRkJzRWlVc3lENUhJb3JnWEsxNzlDJTJCNiUyQkhhWTdNRFclMkZmQXB1VWt1WVBrMk1GJTJCZmltJTJGNnMzckRyRXg2eVZkaGZiWTElMkZlbHVSaUk3QjhEMWVnSXBxcE1mT3Boem1qYVFZb2xpUERWM0U2JTJCSklOSWN1N2dqMEwwb0x6S09NcDNtMmRZM0FRTW9KbTcwbTA3Vlpnd3NveHEzaHA3OGpoRVFPNVNta3dwWFJYaU5LbDFibTk5eGUyd2dsbEpGcGx0bGRKUEM1JTJGUldYNmx0dHphYXJrY0JLTWJDR0NWUXlRVmNYMWNYNTZKZ0ZDYTRLbSUyQms1NkcyVSUyRjJNMERZVHI4eDVhNXhtc0MyaUxaVlhFWVM4TVNRdG5iWWY5NXdyZUxpTEloM0tYNTd4cG1waSUyRkxUNDYxcnhpZHkxcjlBeGxWazZZcUpnSjEyU3VkRExzVDNNTDZ4Z3RBR090MENvZmx5M1UxclJYMnlJcGhwSHZqUFdJQWlRaW1JTjUya0ZqUDdLZVkzeFF3TlhwMHpkQVpVRm1qVUc3c2tiN1ZnbG1odyUyQlhrbzYyZjJxeWtPazE5cU1BQXolMkYlMkZLdFpOZEM0YXlZSmxVMXJ1WSUyRnFHV2JzUEVMd1JFd1pDJTJGNHVneEtaeGFTRUxnaXdrQnQ2NWNGT1NWTnhYWnNQeFc5M1hUNWVSZGpKQm1EQVNpb2Zjb2NENGxlN2VkTFQ4VDdDRzlsaFpHRzZ5cGhQb045bnV5ZW9odWFMOUlDaEx0Um9JWWVZd3phY2RmYmlna2FiUmQ3WkZWU1ZSNVByQUdvVTNyU0clMkZOWiUyRmFBQnpJak1NMUtjUHJGV1Q4ektOVWZlenZGMVBZR2d3NzBTekN3JTJCVlpTMWlQQkcyczhFRlhDVGdyVW1EYzVrYVRjZXJ3TGpGQlZ3dWNSMW5LbVpPRkluUzh3OWlPSGMzWGhJM3hYNVRseGxKejk5aUJya05QaXV6MnZjQmluRndIVWF0cFd1ejdhRUZyJTJGT1lMeEpqRmxaemFUSmc0RmV3dmx6a0N1dyUyQlNpJTJGJTJGbW0wMjRVNkdzUjhSaUpEUE92a1B1TlJpcHpySWVUNjZBJTNEJTNEJlgtQW16LVNpZ25hdHVyZT0zOTRlODE5NGI5MjQ2ZjRkMThiZWViZGYzNTc5MzJjMDZhNTE0YWE5ZTk2Mjk0YWJiMTg3ZTRhOTY5NmExMGY4JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZWZXJzaW9uPTE="
+    OPENAI_BASE_URL: str = "https://bedrock-mantle.us-east-1.api.aws/v1"          # leave empty to use api.openai.com
+    OPENAI_CHAT_MODEL: str = "openai.gpt-oss-120b"
+    OPENAI_EMBED_MODEL: str = "amazon.titan-embed-text-v2:0"
+
+    AI_PROVIDER: str = "openai"        # openai | nvidia | bedrock | ollama
+
+    # Ollama local settings (used when AI_PROVIDER=ollama)
+    OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
+    OLLAMA_CHAT_MODEL: str = "llama3.2:3b"
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+
+    # NVIDIA NIM — embeddings + reranking
     NVIDIA_API_KEY: str = ""
-    AI_PROVIDER: str = "nvidia"
-    AWS_REGION: str = "us-east-1"
-    BEDROCK_CHAT_MODEL_ID: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    BEDROCK_EMBED_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_CHAT_MODEL: str = "meta/llama-3.3-70b-instruct"
     NVIDIA_EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
+    NVIDIA_RERANK_MODEL: str = "nvidia/nv-rerankqa-mistral-4b-v3"
+
+    # Legacy Bedrock settings (kept for backward compat)
+    AWS_REGION: str = "us-east-1"
+    BEDROCK_CHAT_MODEL_ID: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    BEDROCK_EMBED_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
     CHROMA_HOST: str = "chroma_server"
     CHROMA_PORT: int = 8000
     # Primary S3 configuration
@@ -51,6 +67,11 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PERSONAL_MONTHLY_PRICE_ID: str = ""
     STRIPE_PERSONAL_ANNUAL_PRICE_ID: str = ""
+    # Moroccan CMI payment gateway
+    CMI_CLIENT_ID: str = ""
+    CMI_PAYMENT_URL: str = "https://payment.cmi.co.ma/fim/est3Dgate"
+    CMI_STORE_KEY: str = ""
+    API_BASE_URL: str = "http://localhost:8000"
     SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
     FRONTEND_URLS: Any = Field(default_factory=list)

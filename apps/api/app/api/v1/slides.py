@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.group import GroupMember
 from app.models.slide_deck import Slide, SlideDeck, SlideProgress, SlideQuizAnswer
+from app.services.analytics_service import track_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["slides"])
@@ -170,6 +171,7 @@ async def list_decks(
             "slide_count": d.slide_count,
             "language": d.language,
             "created_at": d.created_at.isoformat(),
+            "pptx_url": d.pptx_url,
             "my_progress_pct": pct,
             "my_completed_slides": completed,
             "my_current_slide_index": prog.current_slide_index if prog else 0,
@@ -261,6 +263,7 @@ async def get_deck(
         "language": deck.language,
         "status": deck.status,
         "error_message": deck.error_message,
+        "pptx_url": deck.pptx_url,
         "file_ids": deck.file_ids or [],
         "slide_count": deck.slide_count,
         "created_at": deck.created_at.isoformat(),
@@ -321,6 +324,14 @@ async def update_progress(
 
     await db.commit()
     completed_count = len(progress.completed_slide_ids or [])
+
+    await track_event(
+        user_id=current_user.id,
+        event_type="slide.viewed",
+        resource_type="slide_deck",
+        resource_id=deck_id,
+        metadata={"slide_id": body.mark_slide_completed_id, "slide_index": body.current_slide_index},
+    )
     return {
         "current_slide_index": progress.current_slide_index,
         "completed_slide_ids": list(progress.completed_slide_ids or []),

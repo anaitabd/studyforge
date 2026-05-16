@@ -28,6 +28,9 @@ LIGHT_BLUE = RGBColor(0x93, 0xC2, 0xFD)
 TEXT_GRAY = RGBColor(0x37, 0x41, 0x51)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 SUBTLE_GRAY = RGBColor(0x9C, 0xA3, 0xAF)
+MAX_SLIDES_PER_CLUSTER = 3
+SLIDE_ENRICH_CONCURRENCY = 4
+SLIDE_ENRICH_TIMEOUT_SECONDS = 45
 
 
 _OUTLINE_SCHEMA = """
@@ -82,6 +85,74 @@ def _format_chunks(chunks: list[dict], char_cap: int = 500) -> str:
         prefix = f"[{src} p.{page}]" if page else f"[{src}]"
         blocks.append(f"{prefix}\n{_truncate(c['text'], char_cap)}")
     return "\n\n".join(blocks)
+
+
+def _first_sentence(text: str, char_cap: int = 180) -> str:
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return ""
+    sentence = re.split(r"(?<=[.!?])\s+", cleaned, maxsplit=1)[0]
+    return _truncate(sentence, char_cap)
+
+
+def _fallback_bullets(outline_slide: dict, used_chunks: list[dict]) -> list[str]:
+    candidates = [
+        str(outline_slide.get("key_idea") or "").strip(),
+        *[_first_sentence(str(c.get("text") or "")) for c in used_chunks[:5]],
+    ]
+    bullets: list[str] = []
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if candidate and candidate not in bullets:
+            bullets.append(candidate[:180])
+        if len(bullets) >= 4:
+            break
+    return bullets or [str(outline_slide.get("title") or "Key concept")[:180]]
+
+
+def _fallback_explanation(outline_slide: dict, used_chunks: list[dict]) -> str:
+    title = str(outline_slide.get("title") or "This topic").strip()
+    key_idea = str(outline_slide.get("key_idea") or title).strip()
+    source_notes = [
+        _first_sentence(str(c.get("text") or ""), char_cap=260)
+        for c in used_chunks[:4]
+    ]
+    source_notes = [note for note in source_notes if note]
+    if not source_notes:
+        source_notes = [key_idea]
+    bullets = "\n".join(f"- {note}" for note in source_notes)
+    return (
+        f"**{key_idea}**\n\n"
+        "## Source-grounded notes\n"
+        f"{bullets}\n\n"
+        "## Study focus\n"
+        f"Use this slide to review the cited material for **{title}**. "
+        "Pay attention to the vocabulary, examples, and page references before moving on."
+    )
+
+
+def _fallback_outline_for_cluster(
+    cluster: list[dict], target_slides: int, section_index: int
+) -> list[dict]:
+    if not cluster:
+        return []
+    stride = max(1, len(cluster) // target_slides)
+    selected = cluster[::stride][:target_slides]
+    slides: list[dict] = []
+    for i, chunk in enumerate(selected):
+        meta = chunk.get("metadata") or {}
+        page = meta.get("page_number")
+        title_seed = _first_sentence(str(chunk.get("text") or ""), char_cap=80)
+        slides.append({
+            "slide_type": "content",
+            "title": title_seed or f"Section {section_index + 1}.{i + 1}",
+            "key_idea": title_seed or "Review the source material for this section.",
+            "source_file": meta.get("file_name"),
+            "source_pages": [page] if isinstance(page, int) and page > 0 else [],
+            "_preset_chunks": [chunk],
+            "_fallback": True,
+        })
+    return slides
 
 
 def _cluster_chunks(chunks: list[dict], n_clusters: int) -> list[list[dict]]:
@@ -180,8 +251,14 @@ class SlideService:
         if not files:
             raise ValueError("No ready files for this deck")
 
+        from app.models.user import User as _User
+        creator = (
+            await db.execute(select(_User).where(_User.id == deck.user_id))
+        ).scalar_one_or_none()
+        _org_id = creator.org_id if creator else None
+
         chunks = vector_store.get_all_chunks_for_files(
-            deck.group_id, [f.id for f in files]
+            [f.id for f in files], _org_id, deck.user_id
         )
         if not chunks:
             raise ValueError("No indexed content found for the selected files")
@@ -207,19 +284,28 @@ class SlideService:
         )
 
         # Phase 1 — outline per cluster, parallelized.
-        outline_tasks = [
-            self._llm_outline_for_cluster(
+        outline_results: list[list[dict]] = []
+        for i, cluster in enumerate(clusters):
+            target_slides = max(
+                3,
+                min(MAX_SLIDES_PER_CLUSTER, len(cluster) // 10 + 2),
+            )
+            outline = await self._llm_outline_for_cluster(
                 corpus=_format_chunks(cluster[:30], char_cap=500),
-                target_slides=max(3, min(8, len(cluster) // 4 + 3)),
+                target_slides=target_slides,
                 style=deck.style,
                 course=deck.course_name or deck.title,
                 language=deck.language,
                 section_index=i,
                 section_count=len(clusters),
             )
-            for i, cluster in enumerate(clusters)
-        ]
-        outline_results = await asyncio.gather(*outline_tasks, return_exceptions=False)
+            if not outline:
+                outline = _fallback_outline_for_cluster(
+                    cluster=cluster,
+                    target_slides=target_slides,
+                    section_index=i,
+                )
+            outline_results.append(outline)
         outlines: list[list[dict]] = [o for o in outline_results if o]
 
         # Flatten + ensure title + summary slides bookend the deck.
@@ -260,6 +346,7 @@ class SlideService:
             "source_file": None,
             "source_pages": [],
             "_preset_chunks": summary_chunks,
+            "_fallback": True,
         })
 
         # Coverage guarantee — make sure every file appears at least once.
@@ -272,12 +359,17 @@ class SlideService:
                     "key_idea": f"Cover key ideas from {f.name} not yet referenced.",
                     "source_file": f.name,
                     "source_pages": [],
+                    "_fallback": True,
                 })
 
         # Phase 2 — enrich each slide in parallel (bounded concurrency).
         files_by_name = _files_by_name(files)
         resolved_file_ids = [f.id for f in files]
-        sem = asyncio.Semaphore(4)
+        sem = asyncio.Semaphore(SLIDE_ENRICH_CONCURRENCY)
+        logger.info(
+            "Slide gen outline: deck=%s outline_slides=%d enrich_concurrency=%d",
+            deck_id, len(flat), SLIDE_ENRICH_CONCURRENCY,
+        )
 
         async def _enrich(idx: int, outline_slide: dict) -> dict:
             stype = outline_slide.get("slide_type", "content")
@@ -288,22 +380,28 @@ class SlideService:
             mod_chunks = await self._chunks_for_outline_slide(
                 outline_slide=outline_slide,
                 file_obj=file_obj,
-                group_id=deck.group_id,
+                org_id=_org_id,
+                user_id=deck.user_id,
                 resolved_file_ids=resolved_file_ids,
                 fallback_chunks=chunks,
                 top_k=8,
             )
+            if outline_slide.get("_fallback"):
+                return self._merge_enrich(idx, outline_slide, {}, mod_chunks)
             corpus = _format_chunks(mod_chunks, char_cap=500)
             async with sem:
                 try:
-                    payload = await ai_service.generate_structured_json(
-                        prompt=self._build_enrich_prompt(
-                            outline_slide=outline_slide,
-                            corpus=corpus,
-                            language=deck.language,
+                    payload = await asyncio.wait_for(
+                        ai_service.generate_structured_json(
+                            prompt=self._build_enrich_prompt(
+                                outline_slide=outline_slide,
+                                corpus=corpus,
+                                language=deck.language,
+                            ),
+                            schema_description=_SLIDE_ENRICH_SCHEMA,
+                            max_tokens=2048,
                         ),
-                        schema_description=_SLIDE_ENRICH_SCHEMA,
-                        max_tokens=3072,
+                        timeout=SLIDE_ENRICH_TIMEOUT_SECONDS,
                     )
                 except Exception as e:
                     logger.warning(
@@ -335,6 +433,7 @@ class SlideService:
         deck.slide_count = len(enriched)
         deck.status = "ready"
         await db.commit()
+        logger.info("Slide gen persisted: deck=%s slides=%d", deck_id, len(enriched))
 
         # Render PPTX (synchronous CPU work) and upload.
         pptx_bytes = self._build_pptx(enriched, {
@@ -349,6 +448,7 @@ class SlideService:
         )
         deck.pptx_url = storage_service.get_presigned_url(key, expires_in=86400)
         await db.commit()
+        logger.info("Slide gen complete: deck=%s pptx_key=%s", deck_id, key)
 
     # ── outline ──────────────────────────────────────────────────────────────
     async def _llm_outline_for_cluster(
@@ -430,7 +530,12 @@ class SlideService:
             "- `bullets`: 3-5 short visual phrases (NOT full sentences). These appear as the slide's headline points.\n"
             "- `examples`: 1-2 concrete worked examples (specific numbers, real scenarios, or runnable code).\n"
             "  Each example body may use markdown including code blocks.\n"
-            "- `speaker_notes`: 3-5 sentences a presenter would say out loud — colloquial, not a re-summary.\n"
+            "- `speaker_notes`: Teaching script for the instructor (3-5 sentences).\n"
+            "  RULE: Speaker notes must NOT restate the bullets. They must add:\n"
+            "    - A concrete real-world example or analogy\n"
+            "    - A common student misconception to address\n"
+            "    - A transition cue or teaching tip\n"
+            "  If you find yourself repeating a bullet point, stop and write something different.\n"
             "- `quiz`: a single multiple-choice question answerable from the content above. "
             "Exactly 4 plausible options; only one correct. Rationale explains why the right answer is right.\n\n"
             f"Language: {lang}.\n\n"
@@ -444,7 +549,8 @@ class SlideService:
         self,
         outline_slide: dict,
         file_obj: File | None,
-        group_id: str,
+        org_id: str | None,
+        user_id: str,
         resolved_file_ids: list[str],
         fallback_chunks: list[dict],
         top_k: int,
@@ -472,10 +578,11 @@ class SlideService:
                 [query_text], input_type="query"
             )
             hits = vector_store.query(
-                group_id=group_id,
+                org_id=org_id,
+                user_id=user_id,
                 query_embedding=embeddings[0],
                 top_k=top_k,
-                min_score=0.0,  # already pre-filtered by file_id
+                min_score=0.0,
                 file_ids=scope_files,
             )
             if hits:
@@ -527,14 +634,23 @@ class SlideService:
                 if isinstance(p, int) and p > 0 and p not in source_pages:
                     source_pages.append(p)
             source_pages = sorted(set(source_pages))[:8]
+        bullets = _normalize_bullets(payload.get("bullets"))
+        if not bullets:
+            bullets = _fallback_bullets(outline_slide, used_chunks)
+        detailed_explanation = str(payload.get("detailed_explanation") or "").strip()
+        if not detailed_explanation:
+            detailed_explanation = _fallback_explanation(outline_slide, used_chunks)
+        speaker_notes = str(payload.get("speaker_notes") or "").strip()[:2000]
+        if not speaker_notes:
+            speaker_notes = str(outline_slide.get("key_idea") or "").strip()[:2000]
         return {
             "order_index": idx,
             "slide_type": outline_slide.get("slide_type") or "content",
             "title": outline_slide.get("title") or f"Slide {idx + 1}",
-            "bullets": _normalize_bullets(payload.get("bullets")),
-            "detailed_explanation": str(payload.get("detailed_explanation") or "").strip(),
+            "bullets": bullets,
+            "detailed_explanation": detailed_explanation,
             "examples": _normalize_examples(payload.get("examples")),
-            "speaker_notes": str(payload.get("speaker_notes") or "").strip()[:2000],
+            "speaker_notes": speaker_notes,
             "source_file": outline_slide.get("source_file"),
             "source_pages": source_pages,
             "quiz": _normalize_quiz(payload.get("quiz")),

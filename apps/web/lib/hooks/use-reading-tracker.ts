@@ -52,7 +52,7 @@ export function useReadingTracker({ fileId, groupId, sentinelRef }: Options) {
     const payload = {
       file_id: fileId,
       group_id: groupId,
-      scroll_depth_pct: Number(scrollDepthRef.current.toFixed(2)),
+      scroll_depth_pct: Math.round(scrollDepthRef.current * 100),
       active_time_seconds: Math.round(activeMsRef.current / 1000),
     };
     const url = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/analytics/reading-event`;

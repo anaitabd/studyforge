@@ -1,7 +1,8 @@
+import asyncio
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,8 @@ from app.core.security import get_current_user
 from app.models.exam import Exam, ExamSession, Question
 from app.models.group import GroupMember
 from app.services import exam_service
+from app.services.analytics_service import track_event
+from app.services.gamification_service import award_xp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["exams"])
@@ -52,16 +55,14 @@ async def _require_exam_in_group(
 # ── request / response models ─────────────────────────────────────────────────
 
 class GenerateExamRequest(BaseModel):
-    title: str
+    file_ids: list[str] | None = None
     question_count: int = Field(default=10, ge=5, le=50)
     difficulty: str = Field(default="mixed", pattern="^(easy|medium|hard|mixed)$")
-    question_type: str = Field(
-        default="mcq_single",
-        pattern="^(mcq_single|mcq_multiple|true_false|fill_blank)$",
-    )
+    question_types: list[str] | None = None
+    subject_area: str | None = None
+    level: str | None = None
     language: str = Field(default="auto", pattern="^(auto|fr|en|ar|es)$")
-    file_ids: list[str] | None = None
-    topic_focus: str | None = None
+    title: str | None = None
 
 
 class AssignExamRequest(BaseModel):
@@ -127,13 +128,15 @@ async def generate_exam(
             db=db,
             group_id=group_id,
             creator_id=current_user.id,
+            org_id=current_user.org_id,
             title=body.title,
             question_count=body.question_count,
             difficulty=body.difficulty,
-            question_type=body.question_type,
+            question_types=body.question_types,
+            subject_area=body.subject_area,
+            level=body.level,
             language=body.language,
             file_ids=body.file_ids,
-            topic_focus=body.topic_focus,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -370,6 +373,12 @@ async def start_session(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    await track_event(
+        user_id=current_user.id,
+        event_type="exam.started",
+        resource_type="exam",
+        resource_id=exam_id,
+    )
     return result
 
 
@@ -432,6 +441,26 @@ async def submit_exam(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    score_pct = None
+    if isinstance(result, dict) and result.get("total"):
+        score_pct = round((result.get("score", 0) / result["total"]), 4)
+    await track_event(
+        user_id=current_user.id,
+        event_type="exam.submitted",
+        resource_type="exam",
+        resource_id=exam_id,
+        metadata={"session_id": session_id, "score": score_pct},
+    )
+
+    asyncio.create_task(award_xp(db, current_user.id, "exam_complete"))
+    if score_pct is not None:
+        if score_pct >= 0.6:
+            asyncio.create_task(award_xp(db, current_user.id, "exam_score_60"))
+        if score_pct >= 0.8:
+            asyncio.create_task(award_xp(db, current_user.id, "exam_score_80"))
+        if score_pct == 1.0:
+            asyncio.create_task(award_xp(db, current_user.id, "exam_perfect"))
+
     return result
 
 
@@ -477,15 +506,20 @@ async def get_session(
             .order_by(Question.order_index)
         )
         questions = q_result.scalars().all()
-        
+        per_q = session.per_question_scores or {}
+
         for q in questions:
             student_answer = session.answers.get(q.id)
+            q_score_data = per_q.get(q.id, {})
             is_correct = (
                 student_answer is not None
+                and isinstance(student_answer, str)
+                and q.correct_answer
                 and student_answer.upper() == q.correct_answer.upper()
             )
             corrections.append({
                 "question_id": q.id,
+                "type": q.type,
                 "question": q.content,
                 "options": q.options,
                 "student_answer": student_answer,
@@ -494,7 +528,46 @@ async def get_session(
                 "explanation": q.explanation,
                 "source_passage": q.source_passage,
                 "difficulty": q.difficulty,
+                "points_earned": q_score_data.get("score"),
+                "points_max": q_score_data.get("max_points", q.points),
+                "feedback": q_score_data.get("feedback"),
             })
+
+    # Generate AI summary when submitted
+    ai_summary = None
+    weak_areas: list = []
+    study_recommendations: list = []
+    if session.submitted_at and corrections:
+        try:
+            from app.services.ai_service import ai_service as _ai
+            wrong_questions = [c["question"] for c in corrections if not c.get("is_correct", True)]
+            score_label = (
+                f"{session.score_over_20}/20"
+                if session.score_over_20 is not None
+                else f"{percentage}%"
+            )
+            summary_prompt = (
+                f"A student completed an exam and scored {score_label}. "
+                f"Questions answered incorrectly: {wrong_questions[:5]}.\n\n"
+                "Return JSON with:\n"
+                '- "ai_summary": 2-3 sentence overall performance assessment\n'
+                '- "weak_areas": array of exactly 3 topic areas the student struggled with\n'
+                '- "study_recommendations": array of exactly 3 specific things to review\n'
+            )
+            summary_result = await _ai.generate_structured_json(
+                prompt=summary_prompt,
+                schema_description=(
+                    "object with: ai_summary (string), weak_areas (array of strings), "
+                    "study_recommendations (array of strings)"
+                ),
+                max_tokens=500,
+            )
+            if isinstance(summary_result, dict):
+                ai_summary = summary_result.get("ai_summary")
+                weak_areas = summary_result.get("weak_areas", [])
+                study_recommendations = summary_result.get("study_recommendations", [])
+        except Exception as e:
+            logger.warning(f"AI summary generation failed for session {session.id}: {e}")
 
     return {
         "session_id": session.id,
@@ -502,9 +575,64 @@ async def get_session(
         "answers": session.answers,
         "score": session.score or 0,
         "total": session.total or 0,
+        "score_over_20": session.score_over_20,
         "percentage": percentage,
+        "passed": (session.score_over_20 >= 10.0) if session.score_over_20 is not None else None,
+        "grading_status": session.grading_status,
         "submitted_at": session.submitted_at.isoformat() if session.submitted_at else None,
         "started_at": session.started_at.isoformat(),
         "time_spent_s": session.time_spent_s or 0,
+        "questions": corrections,
         "corrections": corrections,
+        "ai_summary": ai_summary,
+        "weak_areas": weak_areas,
+        "study_recommendations": study_recommendations,
     }
+
+
+@router.post(
+    "/groups/{group_id}/exams/{exam_id}/sessions/{session_id}/answers/{question_id}/photo",
+    responses={
+        400: {"description": "Invalid file type or file too large"},
+        404: {"description": "Session not found"},
+    },
+)
+async def upload_construction_photo(
+    group_id: str,
+    exam_id: str,
+    session_id: str,
+    question_id: str,
+    current_user: CurrentUser,
+    db: DB,
+    file: UploadFile = File(...),
+):
+    if file.content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(400, "Only JPEG, PNG, or WebP images are accepted.")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:  # 10MB
+        raise HTTPException(400, "Image must be under 10MB.")
+
+    import base64
+    image_b64 = base64.b64encode(contents).decode("utf-8")
+
+    result = await db.execute(
+        select(ExamSession).where(
+            ExamSession.id == session_id,
+            ExamSession.user_id == current_user.id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "Session not found.")
+
+    answers = session.answers or {}
+    answers[question_id] = {
+        **answers.get(question_id, {}),
+        "image_b64": image_b64,
+        "media_type": file.content_type,
+    }
+    session.answers = answers
+    await db.commit()
+
+    return {"status": "uploaded", "question_id": question_id}

@@ -11,6 +11,8 @@ export interface StudentStat {
   exams_taken: number;
   avg_score: number | null;
   chat_count: number;
+  files_read: number;
+  active_minutes: number;
   joined_at: string;
 }
 

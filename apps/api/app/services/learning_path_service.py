@@ -139,9 +139,13 @@ def _build_module_content_prompt(
         f"Module title: {module.get('title')}\n"
         f"Objectives:\n{objectives}\n"
         f"Key concepts: {concepts}\n\n"
-        f"Produce content_markdown of 200-400 words: clear teaching prose, "
-        f"short code blocks or worked examples when relevant, no headings above h3. "
-        "Use this structure in natural flow: short concept explanation → worked example → quick self-check question. "
+        "Write teaching prose that covers the concept thoroughly enough that a student "
+        "with no prior knowledge of this topic could understand it after reading once. "
+        "No headings above h3. Include:\n"
+        "  - One concrete real-world example\n"
+        "  - One common misconception and why it is wrong\n"
+        "  - A self-check question the student can use to test their understanding\n"
+        "The prose must flow as connected paragraphs, not bullet points. "
         "End with one line titled 'Next step:' that bridges to the likely following module topic. "
         f"Use only information from the source material below. Write in {lang}.\n\n"
         f"---SOURCE MATERIAL---\n{corpus}"
@@ -152,6 +156,7 @@ async def generate_path(
     db: AsyncSession,
     group_id: str,
     user_id: str,
+    org_id: str | None,
     title: str,
     file_ids: list[str] | None,
     module_count: int,
@@ -168,7 +173,7 @@ async def generate_path(
         raise ValueError("No ready files found in this group.")
     resolved_ids = [f.id for f in files]
 
-    chunks = vector_store.get_all_chunks_for_files(group_id, resolved_ids)
+    chunks = vector_store.get_all_chunks_for_files(resolved_ids, org_id, user_id)
     if not chunks:
         raise ValueError("No indexed content. Wait for processing to finish.")
 
@@ -202,7 +207,8 @@ async def generate_path(
         try:
             embeddings = await ai_service.embed_texts([query_text.strip() or "course content"], input_type="query")
             mod_chunks = vector_store.query(
-                group_id=group_id,
+                org_id=org_id,
+                user_id=user_id,
                 query_embedding=embeddings[0],
                 top_k=6,
                 min_score=0.0,

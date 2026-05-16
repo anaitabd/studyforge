@@ -43,9 +43,9 @@ class StorageService:
         if endpoint_url:
             client_kwargs["endpoint_url"] = endpoint_url
 
-        # For AWS deployments, prefer default credential provider chain (e.g. IAM role).
-        # Static keys are only used in this temporary legacy R2 compatibility path.
-        if not settings.S3_USE_AWS_MANAGED_CREDENTIALS and legacy_static_credentials:
+        # For AWS deployments, prefer the default credential provider chain.
+        # Legacy R2/MinIO credentials are still honored when explicitly configured.
+        if legacy_static_credentials:
             client_kwargs.update(legacy_static_credentials)
 
         return boto3.client("s3", **client_kwargs)

@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.group import GroupMember
 from app.services import learning_path_service
+from app.services.analytics_service import track_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["learning-paths"])
@@ -53,6 +54,7 @@ async def generate_path(
             db=db,
             group_id=group_id,
             user_id=current_user.id,
+            org_id=current_user.org_id,
             title=body.title,
             file_ids=body.file_ids,
             module_count=body.module_count,
@@ -103,7 +105,7 @@ async def mark_module_complete(
 ):
     await _require_group_member(group_id, current_user.id, db)
     try:
-        return await learning_path_service.mark_complete(
+        result = await learning_path_service.mark_complete(
             db, path_id, module_id, current_user.id, body.completed
         )
     except ValueError as e:
@@ -111,6 +113,16 @@ async def mark_module_complete(
         if "previous modules" in msg.lower():
             raise HTTPException(status_code=409, detail=msg)
         raise HTTPException(status_code=404, detail=msg)
+
+    if body.completed:
+        await track_event(
+            user_id=current_user.id,
+            event_type="learning_path.module_completed",
+            resource_type="learning_path",
+            resource_id=path_id,
+            metadata={"module_id": module_id},
+        )
+    return result
 
 
 @router.delete("/groups/{group_id}/learning-paths/{path_id}", status_code=204)

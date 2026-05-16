@@ -5,13 +5,18 @@ import sys
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
+
+limiter = Limiter(key_func=get_remote_address)
 import app.models  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
-from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths, me, slides
+from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths, me, slides, organizations, live_quiz, concepts, webhooks, search
 
 
 class CloudWatchJsonFormatter(logging.Formatter):
@@ -49,17 +54,16 @@ async def lifespan(app: FastAPI):
     _log_chroma_status()
     startup_state["ready"] = False
 
-    from app.services.reranker import _get_model
+    from app.services.reranker import reranker  # noqa: F401 — import triggers singleton init
 
-    def _warmup_reranker() -> None:
-        try:
-            _get_model()
-            startup_state["ready"] = True
-            logger.info("Reranker warmup complete")
-        except Exception:
-            logger.exception("Reranker warmup failed")
+    from app.core.database import AsyncSessionLocal
+    from app.services.gamification_service import seed_badges
+    async with AsyncSessionLocal() as db:
+        await seed_badges(db)
+    logger.info("Badge definitions seeded")
 
-    asyncio.get_event_loop().run_in_executor(None, _warmup_reranker)
+    startup_state["ready"] = True
+    logger.info("Reranker warmup complete")
     yield
     logger.info("Shutting down StudyForge API")
 
@@ -83,6 +87,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -91,6 +98,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 app.include_router(auth.router, prefix=API_V1_PREFIX)
 app.include_router(groups.router, prefix=API_V1_PREFIX)
@@ -106,6 +123,11 @@ app.include_router(notifications.router, prefix=API_V1_PREFIX)
 app.include_router(learning_paths.router, prefix=API_V1_PREFIX)
 app.include_router(me.router, prefix=API_V1_PREFIX)
 app.include_router(slides.router, prefix=API_V1_PREFIX)
+app.include_router(organizations.router, prefix=API_V1_PREFIX)
+app.include_router(live_quiz.router, prefix=API_V1_PREFIX)
+app.include_router(concepts.router, prefix=API_V1_PREFIX)
+app.include_router(webhooks.router, prefix=API_V1_PREFIX)
+app.include_router(search.router, prefix=API_V1_PREFIX)
 
 
 @app.get("/health")

@@ -39,6 +39,7 @@ export interface SlideDeckSummary {
   slide_count: number;
   language: string;
   created_at: string;
+  pptx_url: string | null;
   my_progress_pct: number;
   my_completed_slides: number;
   my_current_slide_index: number;
@@ -53,6 +54,7 @@ export interface SlideDeckDetail {
   language: string;
   status: "generating" | "ready" | "error";
   error_message: string | null;
+  pptx_url: string | null;
   file_ids: string[];
   slide_count: number;
   created_at: string;

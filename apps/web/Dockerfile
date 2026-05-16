@@ -1,3 +1,10 @@
+FROM node:20-alpine AS dev
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+EXPOSE 3000
+CMD ["npx", "next", "dev"]
+
 FROM node:20-alpine AS builder
 WORKDIR /app
 

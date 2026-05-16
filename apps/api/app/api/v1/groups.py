@@ -11,6 +11,8 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.group import Group, GroupMember
 from app.models.file import File
+from app.models.user import User
+from app.models.gamification import UserLevel
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -312,3 +314,62 @@ async def join_group(
     await db.commit()
 
     return {"message": "Joined group successfully", "group_id": group_id}
+
+
+@router.get(
+    "/{group_id}/leaderboard",
+    responses={403: {"description": "Not a member of this group"}},
+)
+async def get_leaderboard(
+    group_id: str,
+    current_user: CurrentUser,
+    db: DB,
+):
+    """Top 10 members by XP + current user's rank even if outside top 10."""
+    member_result = await db.execute(
+        select(GroupMember).where(GroupMember.group_id == group_id)
+    )
+    all_members = member_result.scalars().all()
+    member_ids = [m.user_id for m in all_members]
+
+    if current_user.id not in member_ids:
+        raise HTTPException(status_code=403, detail="Not a member of this group")
+
+    # Fetch user info and XP for all members
+    users_result = await db.execute(
+        select(User).where(User.id.in_(member_ids))
+    )
+    users_by_id = {u.id: u for u in users_result.scalars().all()}
+
+    levels_result = await db.execute(
+        select(UserLevel).where(UserLevel.user_id.in_(member_ids))
+    )
+    levels_by_id = {ul.user_id: ul for ul in levels_result.scalars().all()}
+
+    # Build and sort
+    ranked = sorted(
+        member_ids,
+        key=lambda uid: levels_by_id[uid].total_xp if uid in levels_by_id else 0,
+        reverse=True,
+    )
+
+    def _entry(rank: int, uid: str) -> dict:
+        u = users_by_id.get(uid)
+        ul = levels_by_id.get(uid)
+        return {
+            "rank": rank,
+            "user_id": uid,
+            "name": u.name if u else "Unknown",
+            "avatar_url": u.avatar_url if u else None,
+            "total_xp": ul.total_xp if ul else 0,
+            "level": ul.level if ul else 1,
+            "level_title": ul.level_title if ul else "Débutant",
+        }
+
+    top10 = [_entry(i + 1, uid) for i, uid in enumerate(ranked[:10])]
+
+    my_rank = next((i + 1 for i, uid in enumerate(ranked) if uid == current_user.id), len(ranked))
+    my_ul = levels_by_id.get(current_user.id)
+    my_xp = my_ul.total_xp if my_ul else 0
+
+    return {"members": top10, "my_rank": my_rank, "my_xp": my_xp}

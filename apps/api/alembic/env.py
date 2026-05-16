@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.core.config import settings
 from app.core.database import Base
 import app.models.user
+import app.models.organization
+import app.models.permissions
 import app.models.group
 import app.models.file
 import app.models.chat
@@ -20,6 +22,13 @@ import app.models.flashcard
 import app.models.room
 import app.models.school
 import app.models.notification
+import app.models.cohort
+import app.models.assignment
+import app.models.goal
+import app.models.audit_log
+import app.models.feature_flag
+import app.models.learning_path
+import app.models.slide_deck
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
@@ -41,7 +50,15 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        # user_events is a non-ORM table (TimescaleDB hypertable managed manually).
+        # Excluding it prevents autogenerate from dropping it on the next revision.
+        include_object=lambda obj, name, type_, reflected, compare_to: not (
+            type_ == "table" and name == "user_events"
+        ),
+    )
     with context.begin_transaction():
         context.run_migrations()
 

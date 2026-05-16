@@ -1,6 +1,6 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiGet, apiPut } from "@/lib/api";
 
 export interface Group {
   id: string; name: string; description: string | null;
@@ -86,15 +86,29 @@ export function useTeacherAnalytics(groupId: string, enabled = true) {
   return useQuery({ queryKey: ["analytics", groupId], queryFn: () => apiGet(`/api/v1/teacher/groups/${groupId}/analytics`), enabled: !!groupId && enabled });
 }
 
-// Notifications stub — backend has no endpoint yet, returns []
 export function useNotifications() {
   return useQuery<Array<{ id: string; title: string; body: string; link: string | null; is_read: boolean; created_at: string }>>({
     queryKey: ["notifications"],
     queryFn: async () => {
-      try { return unwrap(await apiGet("/api/v1/notifications"), "notifications"); }
-      catch { return []; }
+      const data = await apiGet("/api/v1/notifications");
+      return unwrap(data, "notifications");
     },
     staleTime: 60_000,
-    retry: false,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiPut(`/api/v1/notifications/${id}/read`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPut("/api/v1/notifications/read-all", {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });
 }

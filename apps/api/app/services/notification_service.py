@@ -56,11 +56,11 @@ async def _save_in_app(
 
 
 def _dispatch_email(users: list[User], subject: str, html_body: str, idempotency_prefix: str = "") -> None:
-    """Fire send_email_task for every user that has an email address."""
+    """Fire send_email_task for users who have an email address AND have notif_email enabled."""
     from app.tasks.notification_tasks import send_email_task
 
     for user in users:
-        if user.email:
+        if user.email and getattr(user, "notif_email", True):
             try:
                 send_email_task.delay(
                     to_email=user.email,
@@ -73,11 +73,11 @@ def _dispatch_email(users: list[User], subject: str, html_body: str, idempotency
 
 
 def _dispatch_whatsapp(users: list[User], message: str) -> None:
-    """Fire send_whatsapp_task for every user that has a WhatsApp number."""
+    """Fire send_whatsapp_task only for school-plan users who opted in to WhatsApp notifications."""
     from app.tasks.notification_tasks import send_whatsapp_task
 
     for user in users:
-        if user.wa_number:
+        if user.wa_number and getattr(user, "notif_whatsapp", False) and getattr(user, "plan", "") == "school":
             try:
                 send_whatsapp_task.delay(
                     to_number=user.wa_number,

@@ -1,7 +1,9 @@
+import base64
+import io
 import logging
+import os
 import re
 import tempfile
-import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -208,6 +210,92 @@ class FileProcessor:
         # Hard split if no separator found
         step = max_chars - overlap_chars
         return [text[i : i + max_chars] for i in range(0, len(text), max(step, 1))]
+
+
+    async def _extract_pdf_with_vision(self, file_path: str, file_name: str) -> list[dict]:
+        """PDF extraction with vision fallback for visual-heavy pages (async)."""
+        import pdfplumber
+        pages = []
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for i, page in enumerate(pdf.pages, start=1):
+                    text = page.extract_text() or ""
+                    if _page_is_visual_heavy(text, page.height):
+                        logger.info(
+                            f"Page {i} of '{file_name}' is visual-heavy — running vision description"
+                        )
+                        visual_description = await _describe_visual_page(
+                            pdf_path=file_path,
+                            page_number=i,
+                            file_name=file_name,
+                        )
+                        if visual_description:
+                            text = (
+                                f"[Visual content description]\n{visual_description}"
+                                f"\n\n[Text content]\n{text}"
+                            )
+                    if text.strip():
+                        pages.append({"page_number": i, "text": text})
+        except Exception as e:
+            logger.error(f"PDF extraction error: {e}")
+        return pages
+
+    async def extract_text_async(
+        self, file_path: str, mime_type: str, file_name: str
+    ) -> list[dict]:
+        """Like extract_text but adds vision description for visual-heavy PDF pages."""
+        if "pdf" in mime_type.lower():
+            return await self._extract_pdf_with_vision(file_path, file_name)
+        return self.extract_text(file_path, mime_type)
+
+
+def _page_is_visual_heavy(page_text: str, page_height_pts: float) -> bool:
+    """Heuristic: fewer than 60 words on a full page → significant visual content."""
+    words = len(page_text.split()) if page_text else 0
+    return words < 60
+
+
+async def _describe_visual_page(
+    pdf_path: str,
+    page_number: int,
+    file_name: str,
+) -> str:
+    """Rasterize a single PDF page and return an AI vision description for indexing."""
+    from app.services.ai_service import ai_service
+
+    try:
+        from pdf2image import convert_from_path
+
+        images = convert_from_path(
+            pdf_path,
+            dpi=150,
+            first_page=page_number,
+            last_page=page_number,
+        )
+        if not images:
+            return ""
+
+        img = images[0]
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        img_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+        return await ai_service.describe_image(
+            image_b64=img_b64,
+            media_type="image/jpeg",
+            prompt=(
+                f"This is page {page_number} of the educational document '{file_name}'. "
+                "Describe all visual content on this page in detail: "
+                "geometric figures (name, labels, measurements), diagrams, tables, charts, "
+                "drawings, and any text that appears in or near figures. "
+                "Be precise and complete — a student will search for this content. "
+                "Do not describe page decorations, borders, or background colors."
+            ),
+        )
+
+    except Exception as e:
+        logger.warning(f"Vision description failed for page {page_number}: {e}")
+        return ""
 
 
 # Singleton
