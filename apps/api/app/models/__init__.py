@@ -18,6 +18,9 @@ from app.models.feature_flag import FeatureFlag
 from app.models.cohort import Cohort, CohortMember
 from app.models.assignment import Assignment, AssignmentProgress
 from app.models.goal import StudyGoal, StreakRecord, KpiCache
+from app.models.gamification import UserXP, UserLevel, Badge, UserBadge, DailyChallenge
+from app.models.live_quiz import LiveQuiz, LiveQuizParticipant, LiveQuizAnswer
+from app.models.knowledge_graph import KnowledgeConcept, ConceptRelation
 
 __all__ = [
     "User", "School",
@@ -35,4 +38,7 @@ __all__ = [
     "Cohort", "CohortMember",
     "Assignment", "AssignmentProgress",
     "StudyGoal", "StreakRecord", "KpiCache",
+    "UserXP", "UserLevel", "Badge", "UserBadge", "DailyChallenge",
+    "LiveQuiz", "LiveQuizParticipant", "LiveQuizAnswer",
+    "KnowledgeConcept", "ConceptRelation",
 ]

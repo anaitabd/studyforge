@@ -3,6 +3,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 
+// Re-export everything from the specialised hooks so pages can import from one place.
+export type { OrgKpisOverview, AtRiskStudent, CohortKpiSummary, StudentTimelineEvent } from "./use-org-kpis";
+export { useOrgKpisOverview as useOrgKpis, useAtRiskStudents, useCohortKpis, useStudentTimeline } from "./use-org-kpis";
+export type { Cohort } from "./use-cohorts";
+export { useCohorts as useOrgCohorts, useCreateCohort } from "./use-cohorts";
+export { useBulkInvite } from "./use-org-admin";
+
 export interface OrgMember {
   user_id: string;
   name: string;

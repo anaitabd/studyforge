@@ -5,6 +5,7 @@ import { Toaster } from "react-hot-toast";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { AuthSync } from "@/components/providers/auth-sync";
 import { UpgradeModal } from "@/components/providers/upgrade-modal";
+import { ServiceWorkerRegistrar } from "@/components/providers/service-worker-registrar";
 import "./globals.css";
 
 const sora = Sora({ subsets: ["latin"], weight: ["400", "600", "700"], variable: "--font-sora" });
@@ -13,6 +14,7 @@ const dmSans = DM_Sans({ subsets: ["latin"], weight: ["400", "500"], variable: "
 export const metadata: Metadata = {
   title: "StudyForge — Your courses. Your AI tutor. Your exam prep.",
   description: "AI-powered educational RAG platform with citation-backed answers, AI exams, and spaced-repetition flashcards.",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -22,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <body className="font-sans" suppressHydrationWarning>
           <QueryProvider>
             <AuthSync />
+            <ServiceWorkerRegistrar />
             {children}
             <UpgradeModal />
             <Toaster position="top-right" toastOptions={{ duration: 4000, style: { borderRadius: "12px", fontSize: "14px" } }} />

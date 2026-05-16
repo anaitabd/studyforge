@@ -3,19 +3,34 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPatch } from "@/lib/api";
 
+export interface ExamScoreTrendPoint {
+  date: string;
+  score: number | null;
+}
+
 export interface PersonalKpis {
   active_minutes_today: number;
+  active_minutes_goal: number;
+  flashcard_retention_rate: number | null;
   cards_due_today: number;
   cards_overdue: number;
-  flashcard_retention_rate: number | null;
-  exam_score_trend: number[];
+  exam_score_trend: ExamScoreTrendPoint[];
+  streak: StreakData;
+  weak_areas: string[];
+  study_goal: {
+    id: string;
+    title: string;
+    target_date: string | null;
+    target_score: number | null;
+    days_remaining: number | null;
+    on_pace: boolean;
+  } | null;
 }
 
 export interface StreakData {
   current: number;
   longest: number;
   today_active: boolean;
-  last_active_date: string | null;
 }
 
 // Backend returns a flat string[] — no frequency data available yet.

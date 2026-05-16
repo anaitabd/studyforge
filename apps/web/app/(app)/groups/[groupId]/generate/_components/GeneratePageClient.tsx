@@ -181,6 +181,19 @@ function CardHeader({
   );
 }
 
+const EXAM_QTYPE_OPTIONS = [
+  { value: "mcq_single", label: "MCQ" },
+  { value: "mcq_multiple", label: "Multi-select" },
+  { value: "true_false", label: "True/False" },
+  { value: "fill_blank", label: "Fill blank" },
+  { value: "open_calculation", label: "Calculation" },
+  { value: "essay", label: "Essay" },
+  { value: "document_analysis", label: "Document" },
+] as const;
+
+const SUBJECT_OPTIONS = ["Math", "French", "Arabic", "Sciences", "Physics", "History-Geography"];
+const LEVEL_OPTIONS = ["1AC", "2AC", "3AC", "TC", "1BAC", "2BAC"];
+
 // Exam card
 function ExamCard({
   groupId, selectedFiles, allFiles, expanded, onToggle, inFlight, onStart, onEnd,
@@ -188,7 +201,9 @@ function ExamCard({
   const [title, setTitle] = useState("");
   const [qCount, setQCount] = useState(10);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | "mixed">("mixed");
-  const [qType, setQType] = useState("mcq_single");
+  const [qTypes, setQTypes] = useState<string[]>([]);
+  const [subjectArea, setSubjectArea] = useState("");
+  const [level, setLevel] = useState("");
   const [jobState, setJobState] = useState<{ status: "processing" | "ready" | "error"; id?: string; error?: string } | null>(null);
   const { mutate, isPending } = useGenerateExam(groupId);
 
@@ -199,12 +214,25 @@ function ExamCard({
 
   const canSubmit = selectedFiles.length > 0 && !inFlight && !isPending;
 
+  const toggleQType = (val: string) =>
+    setQTypes((prev) =>
+      prev.includes(val) ? prev.filter((t) => t !== val) : [...prev, val]
+    );
+
   const handleSubmit = () => {
     if (!canSubmit) return;
     onStart();
     setJobState({ status: "processing" });
     mutate(
-      { title: title || "Untitled exam", file_ids: selectedFiles, question_count: qCount, difficulty, question_type: qType as never },
+      {
+        title: title || "Untitled exam",
+        file_ids: selectedFiles,
+        question_count: qCount,
+        difficulty,
+        question_types: qTypes.length > 0 ? qTypes : undefined,
+        subject_area: subjectArea || undefined,
+        level: level || undefined,
+      },
       {
         onSuccess: (res: any) => {
           const id = res?.id ?? res?.exam_id;
@@ -225,6 +253,10 @@ function ExamCard({
       <CardHeader cardKey="exam" expanded={expanded} onToggle={onToggle} inFlight={isPending} />
       {expanded && (
         <div className={cn("border border-t-0 border-l-4 border-l-accent border-slate-200 rounded-b-xl bg-white p-5 space-y-4")}>
+          <div className="flex items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2 text-xs text-indigo-700">
+            <span className="shrink-0">ℹ</span>
+            Exam scored /20 — Moroccan curriculum
+          </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
             <input className="input w-full" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Exam title" />
@@ -246,13 +278,41 @@ function ExamCard({
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Question type</label>
-            <select className="input w-full" value={qType} onChange={(e) => setQType(e.target.value)}>
-              <option value="mcq_single">Multiple choice (single answer)</option>
-              <option value="mcq_multiple">Multiple choice (multiple answers)</option>
-              <option value="true_false">True / False</option>
-              <option value="fill_blank">Fill in the blank</option>
-            </select>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Question types <span className="text-slate-400 font-normal text-xs">(empty = mixed)</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {EXAM_QTYPE_OPTIONS.map(({ value, label }) => {
+                const checked = qTypes.includes(value);
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => toggleQType(value)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                      checked ? "bg-accent text-white border-accent" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    )}
+                  >{label}</button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Subject</label>
+              <select className="input w-full" value={subjectArea} onChange={(e) => setSubjectArea(e.target.value)}>
+                <option value="">Any</option>
+                {SUBJECT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Level</label>
+              <select className="input w-full" value={level} onChange={(e) => setLevel(e.target.value)}>
+                <option value="">Any</option>
+                {LEVEL_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
           </div>
           <button
             onClick={handleSubmit}

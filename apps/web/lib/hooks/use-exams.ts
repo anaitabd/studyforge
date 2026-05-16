@@ -3,13 +3,24 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { LONG_AI_REQUEST_TIMEOUT_MS } from "@/lib/api";
 
+export type QuestionType =
+  | "mcq_single"
+  | "mcq_multiple"
+  | "true_false"
+  | "fill_blank"
+  | "open_calculation"
+  | "essay"
+  | "document_analysis"
+  | "construction_photo";
+
 export interface Question {
   id: string;
-  type: "mcq_single" | "mcq_multiple" | "true_false" | "fill_blank";
+  type: QuestionType;
   content: string;
   options: Record<string, string> | null;
   difficulty: string;
   order_index: number;
+  points?: number;
   correct_answer?: string;
   explanation?: string;
   source_passage?: string;
@@ -35,23 +46,33 @@ export interface Exam {
 
 export interface Correction {
   question_id: string;
+  type: QuestionType;
   question: string;
   options: Record<string, string> | null;
   student_answer: string | null;
   correct_answer: string;
-  is_correct: boolean;
+  is_correct: boolean | null;
   explanation: string;
   source_passage: string | null;
   difficulty: string;
+  points_earned: number | null;
+  points_max: number;
+  feedback: string | null;
 }
 
 export interface GradingResult {
   session_id: string;
   score: number;
   total: number;
+  score_over_20: number | null;
   percentage: number;
+  passed: boolean | null;
+  grading_status: "pending" | "graded";
   time_spent_s: number;
   corrections: Correction[];
+  ai_summary: string | null;
+  weak_areas: string[];
+  study_recommendations: string[];
 }
 
 export function useExams(groupId: string) {
@@ -78,12 +99,14 @@ export function useGenerateExam(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
-      title: string;
+      title?: string;
       question_count: number;
       difficulty: string;
-      question_type: string;
+      question_types?: string[];
+      subject_area?: string;
+      level?: string;
       language: string;
-      topic_focus?: string;
+      file_ids?: string[];
     }) => {
       const res = await api.post(`/api/v1/groups/${groupId}/exams/generate`, data, {
         timeout: LONG_AI_REQUEST_TIMEOUT_MS,
@@ -122,6 +145,25 @@ export function useSubmitExam(groupId: string, examId: string, sessionId: string
         { answers }
       );
       return res.data as GradingResult;
+    },
+  });
+}
+
+export function useUploadConstructionPhoto(
+  groupId: string,
+  examId: string,
+  sessionId: string,
+) {
+  return useMutation({
+    mutationFn: async ({ questionId, file }: { questionId: string; file: File }) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post(
+        `/api/v1/groups/${groupId}/exams/${examId}/sessions/${sessionId}/answers/${questionId}/photo`,
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return res.data as { status: string; question_id: string };
     },
   });
 }

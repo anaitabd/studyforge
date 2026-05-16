@@ -11,6 +11,7 @@ from app.models.exam import Exam, ExamSession, Question
 from app.models.file import File
 from app.services.ai_service import ai_service
 from app.services.vector_store import vector_store
+from app.services import grading_service
 from app.services.curriculum_service import (
     detect_subject,
     detect_level,
@@ -488,7 +489,8 @@ async def submit_and_grade(
 ) -> dict:
     """
     Submit exam answers, grade them, persist results, and return full corrections.
-    answers: {question_id: selected_option_key}
+    Binary types (mcq/true_false/fill_blank) are graded locally.
+    Open types (calculation/essay/document_analysis/construction_photo) go to grading_service.
     """
     result = await db.execute(
         select(ExamSession).where(
@@ -502,7 +504,6 @@ async def submit_and_grade(
     if session.submitted_at is not None:
         raise ValueError("Session already submitted.")
 
-    # Load questions
     q_result = await db.execute(
         select(Question)
         .where(Question.exam_id == session.exam_id)
@@ -510,53 +511,154 @@ async def submit_and_grade(
     )
     questions = q_result.scalars().all()
 
-    # Grade each question
-    score = 0
-    corrections = []
-    for q in questions:
-        student_answer = answers.get(q.id)
-        is_correct = (
-            student_answer is not None
-            and student_answer.upper() == q.correct_answer.upper()
-        )
-        if is_correct:
-            score += 1
+    # Merge submitted text answers with pre-saved session answers (e.g. construction photos)
+    merged_answers: dict = {**(session.answers or {}), **answers}
 
+    BINARY_TYPES = {"mcq_single", "mcq_multiple", "true_false", "fill_blank"}
+
+    per_question_scores: dict = {}
+    corrections: list = []
+    total_earned = 0.0
+    total_max = 0.0
+    binary_correct = 0
+
+    for q in questions:
+        student_answer = merged_answers.get(q.id)
+        max_pts = float(q.points or 1.0)
+        total_max += max_pts
+        rubric = q.rubric if isinstance(q.rubric, dict) else {}
+
+        if q.type in BINARY_TYPES:
+            is_correct = (
+                student_answer is not None
+                and isinstance(student_answer, str)
+                and bool(q.correct_answer)
+                and student_answer.upper() == q.correct_answer.upper()
+            )
+            earned = max_pts if is_correct else 0.0
+            if is_correct:
+                binary_correct += 1
+            pq = {
+                "score": earned,
+                "max_points": max_pts,
+                "is_correct": is_correct,
+                "feedback": q.explanation if not is_correct else None,
+            }
+
+        elif q.type == "open_calculation":
+            if student_answer and isinstance(student_answer, str):
+                q_dict = {
+                    "question": q.content,
+                    "solution_steps": rubric.get("solution_steps", []),
+                    "final_answer": rubric.get("final_answer", q.correct_answer or ""),
+                    "partial_credit_rules": rubric.get("partial_credit_rules", []),
+                }
+                pq = await grading_service.grade_open_calculation(q_dict, student_answer, max_pts)
+            else:
+                pq = {"score": 0.0, "max_points": max_pts, "feedback": "No answer provided.", "step_scores": []}
+            earned = float(pq.get("score", 0))
+
+        elif q.type == "essay":
+            if student_answer and isinstance(student_answer, str):
+                q_dict = {
+                    "question": q.content,
+                    "rubric": rubric.get("rubric", []),
+                    "model_answer_outline": rubric.get("model_answer_outline", []),
+                }
+                pq = await grading_service.grade_essay(
+                    q_dict, student_answer, max_pts, subject=q.subject_area or "general"
+                )
+            else:
+                pq = {"score": 0.0, "max_points": max_pts, "feedback": "No answer provided.", "category_scores": []}
+            earned = float(pq.get("score", 0))
+
+        elif q.type == "document_analysis":
+            q_dict = {
+                "question": q.content,
+                "sub_questions": rubric.get("sub_questions", []),
+                "document_text": rubric.get("document_text", ""),
+            }
+            if isinstance(student_answer, dict):
+                sub_answers = student_answer
+            elif isinstance(student_answer, str) and student_answer:
+                sub_answers = {"0": student_answer}
+            else:
+                sub_answers = {}
+            if sub_answers:
+                pq = await grading_service.grade_document_analysis(q_dict, sub_answers, max_pts)
+            else:
+                pq = {"score": 0.0, "max_points": max_pts, "feedback": "No answer provided.", "sub_scores": []}
+            earned = float(pq.get("score", 0))
+
+        elif q.type == "construction_photo":
+            steps = q.construction_steps
+            if isinstance(steps, dict):
+                steps = steps.get("steps", [])
+            q_dict = {
+                "question": q.content,
+                "construction_steps": steps or [],
+                "total_points": max_pts,
+            }
+            if isinstance(student_answer, dict) and "image_b64" in student_answer:
+                pq = await grading_service.grade_construction_photo(
+                    q_dict,
+                    student_answer["image_b64"],
+                    student_answer.get("media_type", "image/jpeg"),
+                )
+            else:
+                pq = {"score": 0.0, "max_points": max_pts, "feedback": "No photo submitted.", "step_results": []}
+            earned = float(pq.get("score", 0))
+
+        else:
+            earned = 0.0
+            pq = {"score": 0.0, "max_points": max_pts, "feedback": "Unknown question type."}
+
+        total_earned += earned
+        per_question_scores[q.id] = pq
         corrections.append({
             "question_id": q.id,
+            "type": q.type,
             "question": q.content,
             "options": q.options,
             "student_answer": student_answer,
             "correct_answer": q.correct_answer,
-            "is_correct": is_correct,
+            "is_correct": pq.get("is_correct"),
             "explanation": q.explanation,
             "source_passage": q.source_passage,
             "difficulty": q.difficulty,
+            "points_earned": pq.get("score"),
+            "points_max": max_pts,
+            "feedback": pq.get("feedback") or pq.get("overall_feedback"),
         })
 
     total = len(questions)
-    percentage = round((score / total) * 100) if total > 0 else 0
+    score_over_20 = round((total_earned / total_max) * 20, 2) if total_max > 0 else 0.0
+    percentage = round((binary_correct / total) * 100) if total > 0 else 0
 
-    # Calculate time spent
     now = datetime.now(timezone.utc)
     started = session.started_at
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     time_spent_s = int((now - started).total_seconds())
 
-    # Persist
-    session.answers = answers
-    session.score = score
+    session.answers = merged_answers
+    session.score = binary_correct
     session.total = total
+    session.score_over_20 = score_over_20
+    session.per_question_scores = per_question_scores
+    session.grading_status = "graded"
     session.submitted_at = now
     session.time_spent_s = time_spent_s
     await db.commit()
 
     return {
         "session_id": session_id,
-        "score": score,
+        "score": binary_correct,
         "total": total,
+        "score_over_20": score_over_20,
         "percentage": percentage,
+        "passed": score_over_20 >= 10.0,
+        "grading_status": "graded",
         "time_spent_s": time_spent_s,
         "corrections": corrections,
     }

@@ -142,6 +142,9 @@ async def continue_learning(current_user: CurrentUser, db: DB, limit: int = 6):
 
 @router.get("/account")
 async def get_account(current_user: CurrentUser, db: DB):
+    import asyncio
+    from app.services.gamification_service import award_xp
+    asyncio.create_task(award_xp(db, current_user.id, "daily_login"))
     return await _build_account(current_user, db)
 
 
@@ -505,6 +508,93 @@ async def get_streak(current_user: CurrentUser, db: DB):
     return await _compute_streak(current_user.id, db)
 
 
+@router.get("/xp")
+async def get_xp(current_user: CurrentUser, db: DB):
+    """XP summary: total, level, title, XP to next level, recent log."""
+    from app.models.gamification import UserLevel, UserXP
+    from app.services.gamification_service import xp_to_next_level
+
+    level_result = await db.execute(
+        select(UserLevel).where(UserLevel.user_id == current_user.id)
+    )
+    ul = level_result.scalar_one_or_none()
+    total_xp = ul.total_xp if ul else 0
+    level = ul.level if ul else 1
+    level_title = ul.level_title if ul else "Débutant"
+
+    log_result = await db.execute(
+        select(UserXP)
+        .where(UserXP.user_id == current_user.id)
+        .order_by(UserXP.earned_at.desc())
+        .limit(20)
+    )
+    recent = log_result.scalars().all()
+
+    return {
+        "total_xp": total_xp,
+        "level": level,
+        "level_title": level_title,
+        "xp_to_next_level": xp_to_next_level(total_xp, level),
+        "recent_xp_log": [
+            {"points": e.points, "reason": e.reason, "earned_at": e.earned_at.isoformat()}
+            for e in recent
+        ],
+    }
+
+
+@router.get("/badges")
+async def get_badges(current_user: CurrentUser, db: DB):
+    """All earned badges for the current user."""
+    from app.models.gamification import UserBadge, Badge
+
+    earned_result = await db.execute(
+        select(UserBadge, Badge)
+        .join(Badge, Badge.id == UserBadge.badge_id)
+        .where(UserBadge.user_id == current_user.id)
+        .order_by(UserBadge.earned_at.desc())
+    )
+    rows = earned_result.all()
+
+    earned = [
+        {
+            "id": ub.badge_id,
+            "name": b.name,
+            "description": b.description,
+            "icon": b.icon,
+            "category": b.category,
+            "rarity": b.rarity,
+            "xp_reward": b.xp_reward,
+            "earned_at": ub.earned_at.isoformat(),
+        }
+        for ub, b in rows
+    ]
+
+    latest = earned[0] if earned else None
+    return {"earned": earned, "total_count": len(earned), "latest_badge": latest}
+
+
+@router.get("/challenge/today")
+async def get_today_challenge(current_user: CurrentUser, db: DB):
+    """Today's daily challenge with current progress."""
+    from app.services.gamification_service import get_or_create_daily_challenge
+    return await get_or_create_daily_challenge(db, current_user.id)
+
+
+class ChallengeProgressRequest(BaseModel):
+    type: str
+    increment: int = Field(default=1, ge=1)
+
+
+@router.post("/challenge/today/progress")
+async def update_today_challenge(body: ChallengeProgressRequest, current_user: CurrentUser, db: DB):
+    """Increment progress on today's challenge."""
+    from app.services.gamification_service import update_challenge_progress
+    result = await update_challenge_progress(db, current_user.id, body.type, body.increment)
+    if not result:
+        raise HTTPException(status_code=404, detail="No matching active challenge for today")
+    return result
+
+
 @router.get("/weak-areas")
 async def get_weak_areas(current_user: CurrentUser, db: DB):
     """
@@ -549,3 +639,72 @@ async def get_weak_areas(current_user: CurrentUser, db: DB):
         weak_areas = []
 
     return {"weak_areas": [str(w) for w in weak_areas[:5]]}
+
+
+# ── payments ───────────────────────────────────────────────────────────────────
+
+class SubscribeRequest(BaseModel):
+    plan: str
+    payment_method: str = "stripe"  # stripe | cmi | cashplus
+    success_url: str = ""
+    cancel_url: str = ""
+
+
+@router.post("/subscribe")
+async def subscribe(body: SubscribeRequest, current_user: CurrentUser):
+    from app.services.payment_service import create_checkout_session
+    try:
+        result = await create_checkout_session(
+            user_id=str(current_user.id),
+            plan=body.plan,
+            payment_method=body.payment_method,
+            success_url=body.success_url,
+            cancel_url=body.cancel_url,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/subscription")
+async def get_subscription(current_user: CurrentUser, db: DB):
+    from app.core.plans import get_plan
+    plan_key = getattr(current_user, "plan", "free") or "free"
+    plan_config = get_plan(plan_key)
+
+    sub_row = (await db.execute(
+        select(Subscription)
+        .where(Subscription.user_id == current_user.id)
+        .order_by(Subscription.created_at.desc())
+    )).scalar_one_or_none()
+
+    renewal_date = None
+    if sub_row and hasattr(sub_row, "current_period_end"):
+        renewal_date = sub_row.current_period_end
+
+    limits = plan_config.get("limits", {})
+
+    today = date.today()
+    month_start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+
+    exams_used = (await db.execute(
+        select(func.count(Exam.id)).where(
+            Exam.group_id.in_(
+                select(GroupMember.group_id).where(GroupMember.user_id == current_user.id)
+            ),
+            Exam.created_at >= month_start,
+        )
+    )).scalar() or 0
+
+    return {
+        "plan": plan_key,
+        "plan_name": plan_config.get("name_fr", plan_key),
+        "price_mad": plan_config.get("price_mad", 0),
+        "price_eur": plan_config.get("price_eur", 0),
+        "renewal_date": renewal_date,
+        "limits": limits,
+        "usage": {
+            "exams_this_month": exams_used,
+        },
+        "features": plan_config.get("features", []),
+    }

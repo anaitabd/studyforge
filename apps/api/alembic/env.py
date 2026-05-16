@@ -50,7 +50,15 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        # user_events is a non-ORM table (TimescaleDB hypertable managed manually).
+        # Excluding it prevents autogenerate from dropping it on the next revision.
+        include_object=lambda obj, name, type_, reflected, compare_to: not (
+            type_ == "table" and name == "user_events"
+        ),
+    )
     with context.begin_transaction():
         context.run_migrations()
 

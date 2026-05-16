@@ -113,14 +113,15 @@ class VectorStore:
         if not results["ids"] or not results["ids"][0]:
             return chunks
 
-        for doc, meta, dist in zip(
+        for cid, doc, meta, dist in zip(
+            results["ids"][0],
             results["documents"][0],
             results["metadatas"][0],
             results["distances"][0],
         ):
             similarity = _DISTANCE_TO_SIMILARITY(dist)
             if similarity >= min_score:
-                chunks.append({"text": doc, "metadata": meta, "similarity_score": similarity})
+                chunks.append({"id": cid, "text": doc, "metadata": meta, "similarity_score": similarity})
 
         return chunks
 
@@ -159,6 +160,28 @@ class VectorStore:
             logger.info("Deleted chunks for file %s", file_id)
         except Exception as e:
             logger.error("Error deleting chunks for file %s: %s", file_id, e)
+
+    def get_chunks_by_ids(
+        self,
+        chunk_ids: list[str],
+        org_id: str | None,
+        user_id: str,
+    ) -> list[dict]:
+        """Retrieve specific chunks by their ChromaDB IDs."""
+        if not chunk_ids:
+            return []
+        collection = self.get_or_create_collection(org_id, user_id)
+        try:
+            results = collection.get(ids=chunk_ids, include=["documents", "metadatas"])
+        except Exception as e:
+            logger.error("get_chunks_by_ids error: %s", e)
+            return []
+        return [
+            {"id": cid, "text": doc, "metadata": meta}
+            for cid, doc, meta in zip(
+                results["ids"], results["documents"], results["metadatas"]
+            )
+        ]
 
     def delete_group(self, group_id: str) -> None:
         """Delete the legacy group-scoped collection (used during migration)."""

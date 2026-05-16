@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from app.models.exam import Exam, ExamSession, Question
 from app.models.group import GroupMember
 from app.services import exam_service
 from app.services.analytics_service import track_event
+from app.services.gamification_service import award_xp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["exams"])
@@ -449,6 +451,16 @@ async def submit_exam(
         resource_id=exam_id,
         metadata={"session_id": session_id, "score": score_pct},
     )
+
+    asyncio.create_task(award_xp(db, current_user.id, "exam_complete"))
+    if score_pct is not None:
+        if score_pct >= 0.6:
+            asyncio.create_task(award_xp(db, current_user.id, "exam_score_60"))
+        if score_pct >= 0.8:
+            asyncio.create_task(award_xp(db, current_user.id, "exam_score_80"))
+        if score_pct == 1.0:
+            asyncio.create_task(award_xp(db, current_user.id, "exam_perfect"))
+
     return result
 
 

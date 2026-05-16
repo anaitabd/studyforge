@@ -43,7 +43,10 @@ export interface GenerateExamPayload {
   file_ids: string[];
   question_count: number;
   difficulty: "easy" | "medium" | "hard" | "mixed";
-  question_type: "mcq_single" | "mcq_multiple" | "true_false" | "fill_blank";
+  question_types?: string[];
+  subject_area?: string;
+  level?: string;
+  language?: string;
 }
 
 export interface GenerateFlashcardsPayload {

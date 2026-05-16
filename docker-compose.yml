@@ -102,6 +102,7 @@ services:
       S3_AUTO_CREATE_BUCKET: "true"
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
+      FRONTEND_URLS: "https://dev.studyforge.app,http://localhost:3000,http://127.0.0.1:3000"
     volumes:
       - ./apps/api:/app
 

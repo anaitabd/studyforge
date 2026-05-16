@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PERSONAL_MONTHLY_PRICE_ID: str = ""
     STRIPE_PERSONAL_ANNUAL_PRICE_ID: str = ""
+    # Moroccan CMI payment gateway
+    CMI_CLIENT_ID: str = ""
+    CMI_PAYMENT_URL: str = "https://payment.cmi.co.ma/fim/est3Dgate"
+    CMI_STORE_KEY: str = ""
+    API_BASE_URL: str = "http://localhost:8000"
     SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
     FRONTEND_URLS: Any = Field(default_factory=list)

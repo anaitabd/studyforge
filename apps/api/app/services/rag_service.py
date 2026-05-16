@@ -1,6 +1,8 @@
 import logging
 from typing import AsyncGenerator
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.ai_service import ai_service
 from app.services.vector_store import vector_store
 from app.services.reranker import reranker
@@ -30,6 +32,7 @@ class RAGService:
         user_message: str,
         chat_history: list[dict],
         language: str = "auto",
+        db: AsyncSession | None = None,
     ) -> AsyncGenerator[dict, None]:
         """
         Full RAG pipeline. Yields dicts:
@@ -44,11 +47,30 @@ class RAGService:
             rewritten = await ai_service.rewrite_query(user_message, chat_history)
             logger.debug(f"Rewritten query: {rewritten!r}")
 
+            # 1.5 — Graph context augmentation
+            graph_context: dict = {"matched_concepts": [], "prerequisite_concepts": [], "chunk_ids": []}
+            if db is not None:
+                try:
+                    from app.services.graph_rag_service import graph_rag_service
+                    graph_context = await graph_rag_service.augment_query(
+                        db=db,
+                        query=rewritten,
+                        org_id=org_id,
+                        user_id=user_id,
+                    )
+                except Exception as graph_exc:
+                    logger.warning(f"Graph RAG augmentation failed (non-fatal): {graph_exc}")
+
             # 2. Embed rewritten query
             embeddings = await ai_service.embed_texts([rewritten], input_type="query")
             query_embedding = embeddings[0]
 
-            # 3. Retrieve top-8 chunks from ChromaDB
+            # 3. Retrieve chunks: graph-priority IDs first, then similarity search
+            priority_chunk_ids = graph_context.get("chunk_ids", [])
+            graph_chunks = []
+            if priority_chunk_ids:
+                graph_chunks = vector_store.get_chunks_by_ids(priority_chunk_ids[:5], org_id, user_id)
+
             raw_chunks = vector_store.query(
                 org_id=org_id,
                 user_id=user_id,
@@ -60,14 +82,18 @@ class RAGService:
             if raw_chunks:
                 logger.debug(f"Top similarity scores: {[round(c.get('similarity_score', 0), 3) for c in raw_chunks[:3]]}")
 
-            if not raw_chunks:
+            # Merge: graph chunks first (deduplicated), then similarity chunks
+            seen_ids = {c["id"] for c in graph_chunks if c.get("id")}
+            merged_chunks = graph_chunks + [c for c in raw_chunks if c.get("id") not in seen_ids]
+
+            if not merged_chunks:
                 logger.warning(f"No chunks found for user {user_id} after semantic search. Rewritten query: '{rewritten}'")
                 yield {"type": "token", "content": NO_CONTEXT_REPLY}
                 yield {"type": "done"}
                 return
 
             # 4. Rerank → keep top 5 (NIM if API key set, else similarity fallback)
-            top_chunks = await reranker.async_rerank(rewritten, raw_chunks, top_k=5)
+            top_chunks = await reranker.async_rerank(rewritten, merged_chunks[:12], top_k=5)
 
             # 5. Build context string with source headers
             context_parts = []
@@ -87,6 +113,26 @@ class RAGService:
                 {"role": "user", "content": f"COURSE MATERIAL FOR THIS SESSION:\n\n{context}"},
                 {"role": "assistant", "content": "Understood. I will answer based on this material."},
             ]
+
+            # Inject concept block from graph context if available
+            concept_block = ""
+            if graph_context.get("matched_concepts"):
+                lines = ["RELEVANT CONCEPTS FROM YOUR COURSE MATERIAL:"]
+                for c in graph_context["matched_concepts"]:
+                    line = f"• {c['name']}: {c['definition']}"
+                    if c.get("formula"):
+                        line += f" (Formula: {c['formula']})"
+                    lines.append(line)
+                if graph_context.get("prerequisite_concepts"):
+                    lines.append("\nPREREQUISITE CONCEPTS (needed to understand the above):")
+                    for c in graph_context["prerequisite_concepts"]:
+                        lines.append(f"• {c['name']}: {c['definition']}")
+                concept_block = "\n".join(lines)
+
+            if concept_block:
+                messages.insert(2, {"role": "user", "content": concept_block})
+                messages.insert(3, {"role": "assistant", "content": "I see the relevant concepts. I'll use these to structure my answer."})
+
             messages.extend(history_slice)
             messages.append({"role": "user", "content": user_message})
 
