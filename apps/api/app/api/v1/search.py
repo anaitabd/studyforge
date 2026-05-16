@@ -41,7 +41,7 @@ async def global_search(
     files = (await db.execute(
         select(File).where(
             File.group_id.in_(user_group_ids),
-            File.filename.ilike(q_lower),
+            File.name.ilike(q_lower),
         ).limit(5)
     )).scalars().all()
 
@@ -66,7 +66,7 @@ async def global_search(
                 {"id": str(g.id), "name": g.name, "type": "group"} for g in groups
             ],
             "files": [
-                {"id": str(f.id), "name": f.filename, "group_id": str(f.group_id), "type": "file"}
+                {"id": str(f.id), "name": f.name, "group_id": str(f.group_id), "type": "file"}
                 for f in files
             ],
             "exams": [

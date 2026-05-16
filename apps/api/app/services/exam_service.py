@@ -276,9 +276,16 @@ async def generate_exam(
             for q in result:
                 if isinstance(q, dict):
                     typed_raw_questions.append((q_type, q))
+                else:
+                    logger.warning(f"Skipping non-dict item in {q_type} results: got {type(q).__name__}")
 
     if not typed_raw_questions:
         raise ValueError("AI returned unexpected format for questions.")
+    if len(typed_raw_questions) < question_count * 0.5:
+        raise ValueError(
+            f"AI produced only {len(typed_raw_questions)} of {question_count} requested questions "
+            f"(minimum 50% threshold not met). Try again or reduce the question count."
+        )
 
     # Assign /20 point values proportional to question type weights
     raw_for_distribution = [{"type": qt, **q} for qt, q in typed_raw_questions]
@@ -312,12 +319,18 @@ async def generate_exam(
     questions_out = []
     for i, q in enumerate(distributed):
         if not isinstance(q, dict):
+            logger.warning(f"Skipping question at index {i}: expected dict, got {type(q).__name__}")
             continue
         q_type = q.get("type", question_types[0] if question_types else "mcq_single")
         if q_type in ("mcq_single", "mcq_multiple", "true_false", "fill_blank"):
             if not all(k in q for k in ("question", "options", "correct_answer")):
+                logger.warning(
+                    f"Skipping question at index {i} (type={q_type}): missing required fields "
+                    f"(has: {list(q.keys())})"
+                )
                 continue
         elif "question" not in q:
+            logger.warning(f"Skipping question at index {i} (type={q_type}): missing 'question' field")
             continue
 
         q_id = str(uuid.uuid4())

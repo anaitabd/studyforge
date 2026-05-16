@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { getToken } from "@/lib/api";
 
 export interface Citation {
@@ -36,11 +36,12 @@ export function useChatHistory(groupId: string) {
 }
 
 export function useChat(groupId: string) {
+  const qc = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  const initFromHistory = useCallback((history: ChatMessage[]) => {
+  const setHistory = useCallback((history: ChatMessage[]) => {
     setMessages(history);
   }, []);
 
@@ -161,14 +162,15 @@ export function useChat(groupId: string) {
       } finally {
         setIsStreaming(false);
         abortRef.current = null;
+        qc.invalidateQueries({ queryKey: ["chat-history", groupId] });
       }
     },
-    [groupId, isStreaming]
+    [groupId, isStreaming, qc]
   );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
-  return { messages, isStreaming, sendMessage, initFromHistory, stop };
+  return { messages, isStreaming, sendMessage, setHistory, stop };
 }

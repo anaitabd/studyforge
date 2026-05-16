@@ -2,6 +2,8 @@
 
 ## Priority 1 — Runtime bugs (backend)
 
+FIXED BROKEN_BACKEND — `GET /api/v1/search` — `File.filename.ilike(...)` → `File.name.ilike(...)` in `search.py:44,69`; `File` model has no `filename` column, this raised `AttributeError` on every search query that matched a file.
+
 FIXED BROKEN_BACKEND — `POST /api/v1/admin/users/{id}/suspend` — `AuditLog(metadata=...)` → `AuditLog(meta=...)` in `admin.py:478`; column is `meta` not `metadata`, would have raised `AttributeError` on every suspend call.
 
 FIXED BROKEN_BACKEND — `PATCH /api/v1/admin/feature-flags/{key}` — `AuditLog(metadata=...)` → `AuditLog(meta=...)` in `admin.py:538`; same `AttributeError` on every flag update.

@@ -8,7 +8,7 @@ import { formatDistanceToNow } from "date-fns";
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const { data: notifications = [] } = useNotifications();
+  const { data: notifications = [], isError } = useNotifications();
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   useEffect(() => {
@@ -23,17 +23,22 @@ export function NotificationBell() {
     <div className="relative" ref={ref}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => !isError && setOpen((v) => !v)}
         className="relative p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary transition-colors"
-        aria-label="Notifications"
+        aria-label={isError ? "Notifications unavailable" : "Notifications"}
+        title={isError ? "Could not load notifications" : undefined}
+        disabled={isError}
       >
-        <Bell size={18} />
-        {unreadCount > 0 && (
+        <Bell size={18} className={isError ? "opacity-40" : undefined} />
+        {!isError && unreadCount > 0 && (
           <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
+      {isError && (
+        <span className="sr-only">Notifications are temporarily unavailable</span>
+      )}
       {open && (
         <div className="absolute right-0 top-11 w-80 max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg animate-in">
           <div className="px-4 py-3 border-b border-slate-100">

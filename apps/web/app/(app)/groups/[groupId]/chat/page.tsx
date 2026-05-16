@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useRef, useCallback } from "react";
-import { useStreamingChat } from "@/lib/hooks/use-streaming-chat";
+import { useChat } from "@/lib/hooks/use-chat";
 import { useChatHistory, useGroupFiles } from "@/lib/hooks/useApi";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/chat-input";
@@ -10,7 +10,7 @@ import { FilesContextSidebar } from "@/components/chat/files-context-sidebar";
 
 export default function ChatPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = use(params);
-  const { messages, isStreaming, sendMessage, stop, setHistory } = useStreamingChat(groupId);
+  const { messages, isStreaming, sendMessage, stop, setHistory } = useChat(groupId);
   const { data: history, isSuccess } = useChatHistory(groupId);
   const { data: files } = useGroupFiles(groupId);
   const anyReady = (files ?? []).some((f) => f.status === "ready");
