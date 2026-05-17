@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton, useUser } from "@clerk/nextjs";
-import { Home, FolderOpen, Users, BookOpen, BarChart2, GraduationCap, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { UserButton } from "@clerk/nextjs";
+import { Home, FolderOpen, Users, BookOpen, BarChart2, GraduationCap, ChevronLeft, ChevronRight, Sparkles, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/useAppStore";
+import { useAccount } from "@/hooks/use-account";
 
 const MAIN_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
@@ -19,14 +20,19 @@ const TEACHER_NAV = [
   { href: "/exams", label: "Exams", icon: GraduationCap },
 ];
 
+const ADMIN_NAV = [
+  { href: "/admin/health", label: "Admin", icon: ShieldCheck },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
   const collapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggle = useAppStore((s) => s.toggleSidebar);
-  const { user } = useUser();
-  const role = (user?.publicMetadata?.role as string) ?? "student";
-  const plan = (user?.publicMetadata?.plan as string) ?? "free";
-  const isTeacher = role === "teacher" || role === "owner" || role === "school_admin";
+  const { data: account } = useAccount();
+  const role = account?.role ?? "student";
+  const plan = account?.plan ?? "free";
+  const isSuperAdmin = role === "super_admin";
+  const isTeacher = role === "teacher" || role === "school_admin" || isSuperAdmin;
 
   return (
     <aside
@@ -71,6 +77,33 @@ export function Sidebar() {
             </div>
             {TEACHER_NAV.map(({ href, label, icon: Icon }) => {
               const active = pathname.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  title={collapsed ? label : undefined}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors relative",
+                    active ? "bg-accent/10 text-accent" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                    collapsed && "justify-center px-2"
+                  )}
+                >
+                  {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-accent" />}
+                  <Icon size={18} className="shrink-0" />
+                  {!collapsed && <span>{label}</span>}
+                </Link>
+              );
+            })}
+          </>
+        )}
+
+        {isSuperAdmin && (
+          <>
+            <div className={cn("pt-4 pb-1", collapsed && "px-0")}>
+              {!collapsed && <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider px-3">Platform</p>}
+            </div>
+            {ADMIN_NAV.map(({ href, label, icon: Icon }) => {
+              const active = pathname.startsWith(href) || pathname.startsWith("/admin");
               return (
                 <Link
                   key={href}

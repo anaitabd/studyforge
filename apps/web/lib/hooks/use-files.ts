@@ -72,3 +72,12 @@ export function useDeleteFile(groupId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["files", groupId] }),
   });
 }
+
+export function useDownloadFile(groupId: string) {
+  return useMutation({
+    mutationFn: async (fileId: string) => {
+      const res = await api.get<{ url: string; name: string }>(`/api/v1/groups/${groupId}/files/${fileId}/download`);
+      return res.data;
+    },
+  });
+}

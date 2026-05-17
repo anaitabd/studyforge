@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import Annotated
 
@@ -14,7 +13,7 @@ from app.models.flashcard import Flashcard, FlashcardProgress, FlashcardSet
 from app.models.group import GroupMember
 from app.services import flashcard_service
 from app.services.analytics_service import track_event
-from app.services.gamification_service import award_xp
+from app.services.gamification_service import schedule_award_xp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["flashcards"])
@@ -298,8 +297,11 @@ async def review_card(
         resource_id=set_id,
         metadata={"card_id": card_id, "rating": body.rating},
     )
-    asyncio.create_task(award_xp(db, current_user.id, "flashcard_review",
-                                 {"card_id": card_id, "rating": body.rating}))
+    schedule_award_xp(
+        current_user.id,
+        "flashcard_review",
+        {"card_id": card_id, "rating": body.rating},
+    )
     return progress
 
 

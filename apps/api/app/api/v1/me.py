@@ -142,9 +142,8 @@ async def continue_learning(current_user: CurrentUser, db: DB, limit: int = 6):
 
 @router.get("/account")
 async def get_account(current_user: CurrentUser, db: DB):
-    import asyncio
-    from app.services.gamification_service import award_xp
-    asyncio.create_task(award_xp(db, current_user.id, "daily_login"))
+    from app.services.gamification_service import schedule_award_xp
+    schedule_award_xp(current_user.id, "daily_login")
     return await _build_account(current_user, db)
 
 

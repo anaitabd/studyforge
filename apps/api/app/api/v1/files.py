@@ -305,8 +305,11 @@ async def extract_text_from_image(
 
     if index_to_group:
         from app.services.file_processor import file_processor
-        chunks = file_processor._chunk_text(extracted, file_name="handwritten_notes.txt", page_number=1)
-        await vector_store.upsert_chunks(
+        import uuid as _uuid
+        fake_file_id = str(_uuid.uuid4())
+        pages = [{"page_number": 1, "text": extracted}]
+        chunks = file_processor.chunk_text(pages, fake_file_id, index_to_group, "handwritten_notes.txt")
+        vector_store.upsert_chunks(
             chunks=chunks,
             org_id=current_user.org_id,
             user_id=current_user.id,

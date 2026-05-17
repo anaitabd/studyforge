@@ -7,8 +7,10 @@ const api = axios.create({
 });
 
 export const LONG_AI_REQUEST_TIMEOUT_MS = 600000;
+export const UPLOAD_TIMEOUT_MS = 300000; // 5 min for large file uploads
 
-let _getToken: (() => Promise<string | null>) | null = null;
+let _getToken: (() => Promise<string | null>) | null = 
+null;
 let _onUnauthorized: (() => void) | null = null;
 let _onUpgradeRequired: ((reason: string) => void) | null = null;
 

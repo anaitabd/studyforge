@@ -3,7 +3,7 @@
 import { use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, Presentation, ArrowLeft, Sparkles } from "lucide-react";
+import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, Presentation, ArrowLeft, Sparkles, Network } from "lucide-react";
 import { useGroup } from "@/lib/hooks/useApi";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ const TABS = [
   { key: "slides", label: "Slides", icon: Presentation, teacherOnly: false },
   { key: "exams", label: "Exams", icon: GraduationCap, teacherOnly: false },
   { key: "flashcards", label: "Flashcards", icon: BookOpen, teacherOnly: false },
+  { key: "concepts", label: "Concepts", icon: Network, teacherOnly: false },
   { key: "members", label: "Members", icon: Users, teacherOnly: false },
   { key: "generate", label: "Generate", icon: Sparkles, teacherOnly: true },
 ];

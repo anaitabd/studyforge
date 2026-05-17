@@ -149,6 +149,17 @@ export function useSubmitExam(groupId: string, examId: string, sessionId: string
   });
 }
 
+export function useAssignExam(groupId: string, examId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { ends_at?: string; attempt_limit?: number; shuffle_questions?: boolean; shuffle_answers?: boolean }) => {
+      const res = await api.patch(`/api/v1/groups/${groupId}/exams/${examId}/assign`, data);
+      return res.data as Exam;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exams", groupId] }),
+  });
+}
+
 export function useUploadConstructionPhoto(
   groupId: string,
   examId: string,

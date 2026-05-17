@@ -2,12 +2,14 @@
 Gamification engine: XP, levels, badges, daily challenges.
 All award calls must be fire-and-forget (asyncio.create_task).
 """
+import asyncio
 import logging
 import uuid
-from datetime import date
-from sqlalchemy import select
+from datetime import date, datetime, timezone
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
 from app.models.gamification import UserXP, UserLevel, Badge, UserBadge, DailyChallenge
 from app.models.notification import Notification
 
@@ -93,6 +95,25 @@ async def award_xp(
     points = int(base * multiplier)
     if points <= 0:
         return 0
+
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:user_id))"),
+        {"user_id": user_id},
+    )
+
+    if reason == "daily_login":
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        existing_daily_login = await db.execute(
+            select(UserXP.id)
+            .where(
+                UserXP.user_id == user_id,
+                UserXP.reason == "daily_login",
+                UserXP.earned_at >= today_start,
+            )
+            .limit(1)
+        )
+        if existing_daily_login.scalar_one_or_none():
+            return 0
 
     db.add(UserXP(
         user_id=user_id,
@@ -196,7 +217,7 @@ async def _check_and_award_badges(db: AsyncSession, user_id: str) -> None:
                         user_id=user_id,
                         points=badge.xp_reward,
                         reason="badge_bonus",
-                        metadata={"badge_id": badge_id},
+                        extra={"badge_id": badge_id},
                     ))
                     if user_level:
                         user_level.total_xp += badge.xp_reward
@@ -205,6 +226,33 @@ async def _check_and_award_badges(db: AsyncSession, user_id: str) -> None:
                         user_level.level_title = new_title
 
     await db.commit()
+
+
+async def _award_xp_in_new_session(
+    user_id: str,
+    reason: str,
+    metadata: dict | None = None,
+    multiplier: float = 1.0,
+) -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                await award_xp(db, user_id, reason, metadata, multiplier)
+            except Exception:
+                await db.rollback()
+                raise
+    except Exception:
+        logger.warning("Failed to award XP for user=%s reason=%s", user_id, reason, exc_info=True)
+
+
+def schedule_award_xp(
+    user_id: str,
+    reason: str,
+    metadata: dict | None = None,
+    multiplier: float = 1.0,
+) -> None:
+    """Fire-and-forget XP award using an isolated DB session."""
+    asyncio.create_task(_award_xp_in_new_session(user_id, reason, metadata, multiplier))
 
 
 # ── Daily challenge ────────────────────────────────────────────────────────────

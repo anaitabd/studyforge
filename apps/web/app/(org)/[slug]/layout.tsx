@@ -1,4 +1,9 @@
 import { OrgSidebar } from "@/components/org/org-sidebar";
+import { redirect } from "next/navigation";
+
+const RESERVED_ORG_SLUG_REDIRECTS: Record<string, string> = {
+  super_admin: "/admin/health",
+};
 
 export default async function OrgLayout({
   children,
@@ -8,6 +13,11 @@ export default async function OrgLayout({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  const redirectTo = RESERVED_ORG_SLUG_REDIRECTS[slug];
+
+  if (redirectTo) {
+    redirect(redirectTo);
+  }
 
   return (
     <div className="flex min-h-screen bg-background">

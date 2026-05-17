@@ -2,13 +2,15 @@
 
 import { use, useState } from "react";
 import { Plus, GraduationCap } from "lucide-react";
-import { useExams } from "@/lib/hooks/useApi";
+import { useExams, useGroup } from "@/lib/hooks/useApi";
 import { ExamCard } from "@/components/exams/exam-card";
 import { GenerateExamModal } from "@/components/exams/generate-exam-modal";
 
 export default function ExamsPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = use(params);
   const { data: exams, isLoading } = useExams(groupId);
+  const { data: group } = useGroup(groupId);
+  const canAssign = group?.my_role === "owner" || group?.my_role === "teacher";
   const [open, setOpen] = useState(false);
 
   return (
@@ -36,7 +38,7 @@ export default function ExamsPage({ params }: { params: Promise<{ groupId: strin
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
-          {exams!.map((e) => <ExamCard key={e.id} exam={e} groupId={groupId} />)}
+          {exams!.map((e) => <ExamCard key={e.id} exam={e} groupId={groupId} canAssign={canAssign} />)}
         </div>
       )}
 

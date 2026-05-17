@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import uuid
@@ -17,7 +16,7 @@ from app.models.chat import ChatMessage
 from app.models.group import GroupMember
 from app.services.rag_service import rag_service
 from app.services.analytics_service import track_event
-from app.services.gamification_service import award_xp
+from app.services.gamification_service import schedule_award_xp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -109,7 +108,7 @@ async def send_message(
         resource_type="group",
         resource_id=group_id,
     )
-    asyncio.create_task(award_xp(db, current_user.id, "chat_message"))
+    schedule_award_xp(current_user.id, "chat_message")
 
     async def event_stream():
         full_content = ""

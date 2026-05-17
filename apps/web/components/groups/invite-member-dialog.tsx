@@ -59,7 +59,7 @@ export function InviteMemberDialog({ groupId, open, onClose }: { groupId: string
                   <input readOnly value={link} className="flex-1 input bg-slate-50 text-xs" />
                   <button
                     type="button"
-                    onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                    onClick={() => { navigator.clipboard.writeText(link); setCopied(true); toast.success("Lien copié !"); setTimeout(() => setCopied(false), 2000); }}
                     className="px-3 rounded-lg border border-slate-300 hover:bg-slate-50"
                     aria-label="Copy"
                   >

@@ -13,21 +13,32 @@ const NAV = [
   { label: "Members", href: "members", icon: Users },
 ];
 
+const RESERVED_ORG_SLUG_REDIRECTS: Record<string, string> = {
+  super_admin: "/admin/health",
+};
+
 export default function OrgLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const pathname = usePathname();
+  const redirectTo = RESERVED_ORG_SLUG_REDIRECTS[slug];
 
   const { data: account, isLoading: accountLoading } = useAccount();
-  const { data: org, isLoading: orgLoading } = useOrg(slug);
+  const { data: org, isLoading: orgLoading } = useOrg(redirectTo ? "" : slug);
 
   useEffect(() => {
+    if (redirectTo) {
+      router.replace(redirectTo);
+      return;
+    }
     if (accountLoading || orgLoading) return;
     if (!account?.org_id) {
       router.replace("/dashboard");
     }
-  }, [account, accountLoading, orgLoading, router]);
+  }, [account, accountLoading, orgLoading, redirectTo, router]);
+
+  if (redirectTo) return null;
 
   if (accountLoading || orgLoading) {
     return (

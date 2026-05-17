@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, FileSpreadsheet, Presentation, FileType, Trash2, MoreVertical } from "lucide-react";
+import { FileText, FileSpreadsheet, Presentation, FileType, Trash2, MoreVertical, Download } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiDelete } from "@/lib/api";
+import { useDownloadFile } from "@/lib/hooks/use-files";
 import toast from "react-hot-toast";
 import { formatDistanceToNow } from "date-fns";
 import { FileStatusBadge } from "./file-status-badge";
@@ -31,6 +32,7 @@ export function FileList({ files, groupId }: { files: GroupFile[]; groupId: stri
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["files", groupId] }); toast.success("File deleted"); },
     onError: (e) => toast.error((e as Error).message),
   });
+  const download = useDownloadFile(groupId);
 
   if (files.length === 0) {
     return <p className="text-sm text-slate-400 text-center py-8">No files yet. Upload one above.</p>;
@@ -38,12 +40,19 @@ export function FileList({ files, groupId }: { files: GroupFile[]; groupId: stri
 
   return (
     <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
-      {files.map((f) => <FileRow key={f.id} file={f} onDelete={() => { if (confirm(`Delete "${f.name}"?`)) del.mutate(f.id); }} />)}
+      {files.map((f) => (
+        <FileRow
+          key={f.id}
+          file={f}
+          onDelete={() => { if (confirm(`Delete "${f.name}"?`)) del.mutate(f.id); }}
+          onDownload={() => download.mutate(f.id, { onSuccess: (d) => window.open(d.url, "_blank") })}
+        />
+      ))}
     </ul>
   );
 }
 
-function FileRow({ file, onDelete }: { file: GroupFile; onDelete: () => void }) {
+function FileRow({ file, onDelete, onDownload }: { file: GroupFile; onDelete: () => void; onDownload: () => void }) {
   const { icon: Icon, color } = iconFor(file.mime_type);
   const [menu, setMenu] = useState(false);
   return (
@@ -65,6 +74,13 @@ function FileRow({ file, onDelete }: { file: GroupFile; onDelete: () => void }) 
         </button>
         {menu && (
           <div className="absolute right-0 top-8 z-10 rounded-lg border border-slate-200 bg-white shadow-md py-1 min-w-[140px]">
+            <button
+              type="button"
+              onClick={() => { setMenu(false); onDownload(); }}
+              className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Download size={13} /> Download
+            </button>
             <button
               type="button"
               onClick={() => { setMenu(false); onDelete(); }}

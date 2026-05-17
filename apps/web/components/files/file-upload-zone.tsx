@@ -3,7 +3,7 @@
 import { useDropzone } from "react-dropzone";
 import { UploadCloud } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "@/lib/api";
+import api, { UPLOAD_TIMEOUT_MS } from "@/lib/api";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +21,7 @@ export function FileUploadZone({ groupId }: { groupId: string }) {
     mutationFn: async (file: File) => {
       const fd = new FormData();
       fd.append("file", file);
-      return api.post(`/api/v1/groups/${groupId}/files`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      return api.post(`/api/v1/groups/${groupId}/files`, fd, { timeout: UPLOAD_TIMEOUT_MS });
     },
     onSuccess: (_, f) => {
       qc.invalidateQueries({ queryKey: ["files", groupId] });
