@@ -36,7 +36,7 @@ PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
 [[ -z "$PROJECT_ID" ]] && err "No GCP project set. Run: gcloud config set project YOUR_PROJECT_ID"
 
 GCS_BUCKET="${GCS_BUCKET:-studyforge-${PROJECT_ID}-files}"
-CB_SA="${PROJECT_ID}@cloudbuild.gserviceaccount.com"
+CB_SA="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')@cloudbuild.gserviceaccount.com"
 
 echo ""
 echo "=================================================="
@@ -87,6 +87,7 @@ else
   warn "Creating Cloud SQL instance (this takes ~5 minutes)…"
   gcloud sql instances create "$DB_INSTANCE" \
     --database-version=POSTGRES_16 \
+    --edition=ENTERPRISE \
     --tier=db-g1-small \
     --region="$REGION" \
     --storage-type=SSD \
@@ -139,21 +140,21 @@ echo "  REDIS_URL = $REDIS_URL"
 
 # ── 5. GCS bucket ────────────────────────────────────────────────────────────
 step "5/8 Cloud Storage bucket"
-if gsutil ls "gs://${GCS_BUCKET}" &>/dev/null; then
+if gcloud storage buckets describe "gs://${GCS_BUCKET}" &>/dev/null; then
   ok "Bucket 'gs://${GCS_BUCKET}' already exists"
 else
-  gsutil mb -l "$REGION" "gs://${GCS_BUCKET}"
+  gcloud storage buckets create "gs://${GCS_BUCKET}" --location="$REGION"
   ok "Created bucket 'gs://${GCS_BUCKET}'"
 fi
 # CORS for presigned URL downloads
 cat > /tmp/gcs-cors.json <<'CORS'
 [{"origin":["*"],"method":["GET","HEAD"],"responseHeader":["Content-Type"],"maxAgeSeconds":3600}]
 CORS
-gsutil cors set /tmp/gcs-cors.json "gs://${GCS_BUCKET}"
+gcloud storage buckets update "gs://${GCS_BUCKET}" --cors-file=/tmp/gcs-cors.json
 ok "CORS configured on bucket"
 
 # Uniform bucket-level access
-gsutil uniformbucketlevelaccess set on "gs://${GCS_BUCKET}" 2>/dev/null || true
+gcloud storage buckets update "gs://${GCS_BUCKET}" --uniform-bucket-level-access 2>/dev/null || true
 
 # ── 6. Secret Manager ─────────────────────────────────────────────────────────
 step "6/8 Secret Manager"
@@ -209,7 +210,9 @@ ok "IAM roles granted to Cloud Build SA: $CB_SA"
 
 # Cloud Run SA needs storage.objectAdmin on the bucket + iam.serviceAccountTokenCreator for signed URLs
 CR_SA="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
-gsutil iam ch "serviceAccount:${CR_SA}:roles/storage.objectAdmin" "gs://${GCS_BUCKET}"
+gcloud storage buckets add-iam-policy-binding "gs://${GCS_BUCKET}" \
+  --member="serviceAccount:${CR_SA}" \
+  --role=roles/storage.objectAdmin
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${CR_SA}" \
   --role=roles/iam.serviceAccountTokenCreator \
