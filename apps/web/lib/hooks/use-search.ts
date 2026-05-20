@@ -24,7 +24,7 @@ export function useGlobalSearch(query: string) {
   return useQuery<SearchResults>({
     queryKey: ["search", query],
     queryFn: async () => {
-      const res = await api.get<SearchResults>("/search", { params: { q: query } });
+      const res = await api.get<SearchResults>("/api/v1/search", { params: { q: query } });
       return res.data;
     },
     enabled: query.trim().length >= 2,

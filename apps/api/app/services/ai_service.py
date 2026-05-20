@@ -364,8 +364,45 @@ class BedrockAIProvider(BaseAIProvider):
         return ""
 
     async def stream(self, kwargs: dict[str, Any]) -> AsyncGenerator[str, None]:
-        text = await self.complete(kwargs)
-        yield text
+        messages = kwargs.get("messages", [])
+        payload = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": kwargs.get("max_tokens", 1024),
+            "temperature": kwargs.get("temperature", 0.7),
+            "messages": [{"role": m["role"], "content": [{"type": "text", "text": m["content"]}]} for m in messages],
+        }
+
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def _stream_sync() -> None:
+            try:
+                response = self.client.invoke_model_with_response_stream(
+                    modelId=self.chat_model,
+                    contentType="application/json",
+                    accept="application/json",
+                    body=json.dumps(payload),
+                )
+                for event in response["body"]:
+                    chunk = event.get("chunk")
+                    if chunk:
+                        data = json.loads(chunk["bytes"])
+                        if data.get("type") == "content_block_delta":
+                            delta = data.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                loop.call_soon_threadsafe(queue.put_nowait, delta.get("text", ""))
+            except Exception as exc:
+                logger.error(f"Bedrock stream error: {exc}")
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        loop.run_in_executor(None, _stream_sync)
+
+        while True:
+            token = await queue.get()
+            if token is None:
+                break
+            yield token
 
     async def embed_texts(self, texts: list[str], input_type: str = "passage") -> list[list[float]]:
         if not texts:

@@ -1,19 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { apiPost } from "@/lib/api";
 import toast from "react-hot-toast";
 
-interface JoinPageProps {
-  params: {
-    token: string;
-  };
-}
-
-export default function JoinPage({ params }: JoinPageProps) {
+export default function JoinPage() {
+  const params = useParams<{ token: string }>();
   const router = useRouter();
   const { isLoaded, userId } = useAuth();
   const [status, setStatus] = useState<"idle" | "joining" | "success" | "error">("idle");
