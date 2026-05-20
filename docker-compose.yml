@@ -103,6 +103,11 @@ services:
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
       FRONTEND_URLS: "https://dev.studyforge.app,http://localhost:3000,http://127.0.0.1:3000"
+      AI_PROVIDER: gemini
+      GCP_PROJECT_ID: studyforge-495618
+      GCP_LOCATION: global
+      GEMINI_CHAT_MODEL: gemini-2.5-flash
+      GEMINI_EMBED_MODEL: text-multilingual-embedding-002
     volumes:
       - ./apps/api:/app
 
@@ -131,6 +136,11 @@ services:
       S3_AUTO_CREATE_BUCKET: "true"
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
+      AI_PROVIDER: gemini
+      GCP_PROJECT_ID: studyforge-495618
+      GCP_LOCATION: global
+      GEMINI_CHAT_MODEL: gemini-2.5-flash
+      GEMINI_EMBED_MODEL: text-multilingual-embedding-002
     volumes:
       - ./apps/api:/app
 
@@ -152,6 +162,11 @@ services:
       R2_ENDPOINT: http://minio:9000
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
+      AI_PROVIDER: gemini
+      GCP_PROJECT_ID: studyforge-495618
+      GCP_LOCATION: global
+      GEMINI_CHAT_MODEL: gemini-2.5-flash
+      GEMINI_EMBED_MODEL: text-multilingual-embedding-002
     volumes:
       - ./apps/api:/app
 
@@ -175,6 +190,11 @@ services:
       R2_ENDPOINT: http://minio:9000
       CHROMA_HOST: chroma_server
       CHROMA_PORT: "8000"
+      AI_PROVIDER: gemini
+      GCP_PROJECT_ID: studyforge-495618
+      GCP_LOCATION: global
+      GEMINI_CHAT_MODEL: gemini-2.5-flash
+      GEMINI_EMBED_MODEL: text-multilingual-embedding-002
     volumes:
       - ./apps/api:/app
 

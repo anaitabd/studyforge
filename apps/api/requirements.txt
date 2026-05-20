@@ -37,3 +37,5 @@ pdf2image
 networkx==3.3
 google-cloud-aiplatform>=1.60.0
 google-cloud-storage>=2.16.0
+google-generativeai>=0.8.0
+anthropic[vertex]>=0.40.0

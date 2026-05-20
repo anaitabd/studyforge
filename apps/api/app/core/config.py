@@ -22,13 +22,17 @@ class Settings(BaseSettings):
     OPENAI_CHAT_MODEL: str = "openai.gpt-oss-120b"
     OPENAI_EMBED_MODEL: str = "amazon.titan-embed-text-v2:0"
 
-    AI_PROVIDER: str = "openai"        # openai | nvidia | bedrock | ollama | gemini_vertex | claude_vertex
+    AI_PROVIDER: str = "gemini"        # openai | nvidia | bedrock | ollama | gemini | claude_vertex
 
-    # Gemini / Vertex AI (used when AI_PROVIDER=gemini_vertex or claude_vertex)
+    # GCP / Vertex AI — used by GeminiVertexProvider and ClaudeVertexProvider
+    GCP_PROJECT_ID: str = "studyforge-495618"
+    GCP_LOCATION: str = "global"
+    GEMINI_CHAT_MODEL: str = "gemini-2.5-flash"
+    GEMINI_EMBED_MODEL: str = "text-multilingual-embedding-002"
+
+    # Legacy Google Cloud settings (keep for storage_service.py backward compat)
     GOOGLE_PROJECT_ID: str = ""
     GOOGLE_LOCATION: str = "europe-west9"
-    GEMINI_CHAT_MODEL: str = "gemini-2.5-flash"
-    GEMINI_EMBED_MODEL: str = "text-embedding-004"
 
     # Google Cloud Storage (primary storage on GCP)
     # Set GCS_BUCKET to activate GCS; leave empty to fall back to S3/MinIO (local dev)
