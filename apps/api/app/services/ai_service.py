@@ -414,13 +414,136 @@ class BedrockAIProvider(BaseAIProvider):
         return vectors
 
 
+# ─── Gemini on Vertex AI ─────────────────────────────────────────────────────
+
+class GeminiVertexProvider(BaseAIProvider):
+    """Gemini 2.5 Flash via Vertex AI — uses Application Default Credentials.
+
+    On Cloud Run: ADC is automatic.
+    Locally: run `gcloud auth application-default login` once.
+    Requires GOOGLE_PROJECT_ID and GOOGLE_LOCATION in env/.env.
+    """
+
+    def __init__(self, cfg=None) -> None:
+        import vertexai
+        from vertexai.generative_models import GenerativeModel
+        from app.core.config import settings as _s
+        s = cfg or _s
+        vertexai.init(project=s.GOOGLE_PROJECT_ID or None, location=s.GOOGLE_LOCATION)
+        self.chat_model = s.GEMINI_CHAT_MODEL
+        self.embed_model = s.GEMINI_EMBED_MODEL
+        self._GenerativeModel = GenerativeModel
+
+    def _to_contents(self, messages: list[dict]) -> tuple[str | None, list]:
+        """Convert OpenAI-style messages → Vertex Content objects.
+        Returns (system_instruction_or_None, contents_list).
+        """
+        from vertexai.generative_models import Content, Part
+        system: str | None = None
+        contents = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            raw = msg.get("content", "")
+            if role == "system":
+                system = raw if isinstance(raw, str) else str(raw)
+                continue
+            vertex_role = "user" if role == "user" else "model"
+            if isinstance(raw, str):
+                parts = [Part.from_text(raw)]
+            elif isinstance(raw, list):
+                # Multimodal: OpenAI-style [{type: text/image_url, ...}]
+                parts = []
+                for item in raw:
+                    if item.get("type") == "text":
+                        parts.append(Part.from_text(item["text"]))
+                    elif item.get("type") == "image_url":
+                        url: str = item["image_url"]["url"]
+                        if url.startswith("data:"):
+                            header, b64data = url.split(",", 1)
+                            mime_type = header.split(":")[1].split(";")[0]
+                            import base64 as _b64
+                            raw_bytes = _b64.b64decode(b64data)
+                            parts.append(Part.from_data(data=raw_bytes, mime_type=mime_type))
+            else:
+                parts = [Part.from_text(str(raw))]
+            if parts:
+                contents.append(Content(role=vertex_role, parts=parts))
+        return system, contents
+
+    async def complete(self, kwargs: dict[str, Any]) -> str:
+        from vertexai.generative_models import GenerationConfig
+        system, contents = self._to_contents(kwargs.get("messages", []))
+        model = self._GenerativeModel(self.chat_model, system_instruction=system)
+        cfg = GenerationConfig(
+            temperature=kwargs.get("temperature", 0.7),
+            max_output_tokens=kwargs.get("max_tokens", 4096),
+        )
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: model.generate_content(contents, generation_config=cfg),
+        )
+        return response.text or ""
+
+    async def stream(self, kwargs: dict[str, Any]) -> AsyncGenerator[str, None]:
+        from vertexai.generative_models import GenerationConfig
+        system, contents = self._to_contents(kwargs.get("messages", []))
+        model = self._GenerativeModel(self.chat_model, system_instruction=system)
+        cfg = GenerationConfig(
+            temperature=kwargs.get("temperature", 0.7),
+            max_output_tokens=kwargs.get("max_tokens", 4096),
+        )
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def _sync() -> None:
+            try:
+                for chunk in model.generate_content(contents, generation_config=cfg, stream=True):
+                    if chunk.text:
+                        loop.call_soon_threadsafe(queue.put_nowait, chunk.text)
+            except Exception as exc:
+                logger.error(f"Gemini stream error: {exc}")
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        loop.run_in_executor(None, _sync)
+        while True:
+            token = await queue.get()
+            if token is None:
+                break
+            yield token
+
+    async def chat(self, messages: list[dict], **kwargs) -> str:
+        """Convenience alias used in test scripts and direct callers."""
+        return await self.complete({"messages": messages, **kwargs})
+
+    async def embed_texts(self, texts: list[str], input_type: str = "passage") -> list[list[float]]:
+        from vertexai.language_models import TextEmbeddingInput, TextEmbeddingModel
+        if not texts:
+            return []
+        task = "RETRIEVAL_DOCUMENT" if input_type == "passage" else "RETRIEVAL_QUERY"
+        embed_model = TextEmbeddingModel.from_pretrained(self.embed_model)
+        inputs = [TextEmbeddingInput(text=t, task_type=task) for t in texts]
+        all_embeddings: list[list[float]] = []
+        batch_size = 250  # Vertex AI allows up to 250 inputs per request
+        for i in range(0, len(inputs), batch_size):
+            batch = inputs[i: i + batch_size]
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda b=batch: embed_model.get_embeddings(b),
+            )
+            all_embeddings.extend(e.values for e in resp)
+        return all_embeddings
+
+
 # ─── Service facade ───────────────────────────────────────────────────────────
 
 class AIService:
     def __init__(self):
         provider = settings.AI_PROVIDER.lower()
-        if provider == "bedrock":
-            self.provider: BaseAIProvider = BedrockAIProvider()
+        if provider in ("gemini_vertex", "gemini", "claude_vertex"):
+            self.provider: BaseAIProvider = GeminiVertexProvider()
+        elif provider == "bedrock":
+            self.provider = BedrockAIProvider()
         elif provider == "nvidia":
             self.provider = NvidiaAIProvider()
         elif provider == "ollama":
