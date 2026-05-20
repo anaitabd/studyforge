@@ -58,7 +58,7 @@ substitutions:
   _CHROMA_PORT: "8000"
 
 options:
-  logging: CLOUD_LOGGING_ONLY
+  logging: GCS_ONLY
   machineType: E2_MEDIUM
 
 steps:
