@@ -1,0 +1,229 @@
+# cloudbuild.yaml — StudyForge CI/CD on Google Cloud Build
+#
+# Triggered automatically on push to main branch.
+#
+# ── Before first deploy, run once in your terminal ──────────────────────────
+#
+#   # Artifact Registry
+#   gcloud artifacts repositories create studyforge \
+#     --repository-format=docker --location=europe-west9
+#
+#   # Cloud SQL (Postgres 16)
+#   gcloud sql instances create studyforge-db \
+#     --database-version=POSTGRES_16 --tier=db-g1-small --region=europe-west9
+#   gcloud sql databases create studyforge --instance=studyforge-db
+#   gcloud sql users set-password postgres --instance=studyforge-db --password=<STRONG_PW>
+#
+#   # Memorystore (Redis)
+#   gcloud redis instances create studyforge-cache \
+#     --size=1 --region=europe-west9 --tier=BASIC
+#
+#   # GCS bucket
+#   gsutil mb -l europe-west9 gs://studyforge-$PROJECT_ID-files
+#
+#   # Secret Manager secrets (create once, update as needed)
+#   echo -n "postgresql+asyncpg://postgres:<PW>@/studyforge?host=/cloudsql/$PROJECT_ID:europe-west9:studyforge-db" \
+#     | gcloud secrets create DATABASE_URL --data-file=-
+#   echo -n "redis://<MEMORYSTORE_IP>:6379/0" \
+#     | gcloud secrets create REDIS_URL --data-file=-
+#   echo -n "<CLERK_SECRET_KEY>" | gcloud secrets create CLERK_SECRET_KEY --data-file=-
+#   echo -n "<RANDOM_SECRET>"    | gcloud secrets create SECRET_KEY --data-file=-
+#
+#   # Grant Cloud Build SA access to secrets and Cloud Run
+#   CB_SA="$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')@cloudbuild.gserviceaccount.com"
+#   gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:$CB_SA" --role=roles/run.admin
+#   gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:$CB_SA" --role=roles/secretmanager.secretAccessor
+#   gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:$CB_SA" --role=roles/iam.serviceAccountUser
+#
+# ── ChromaDB ─────────────────────────────────────────────────────────────────
+#   ChromaDB requires persistent storage. Options:
+#   A) Cloud Run + Cloud Filestore (NFS) — set CHROMA_HOST to the Cloud Run URL
+#   B) GCE VM — set CHROMA_HOST to the VM's internal IP
+#   Either way, set CHROMA_HOST/_PORT in the substitutions or env vars below.
+#
+# ── Substitutions (set in Cloud Build trigger) ───────────────────────────────
+#   _REGION          GCP region                    default: europe-west9
+#   _AR_REPO         Artifact Registry repo name   default: studyforge
+#   _API_URL         Production API Cloud Run URL  (set after first deploy)
+#   _CLERK_KEY       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+#   _CHROMA_HOST     ChromaDB host                 default: chroma_server
+#   _CHROMA_PORT     ChromaDB port                 default: 8000
+
+substitutions:
+  _REGION: europe-west9
+  _AR_REPO: studyforge
+  _API_URL: https://studyforge-api-placeholder.a.run.app
+  _CLERK_KEY: ""
+  _CHROMA_HOST: chroma_server
+  _CHROMA_PORT: "8000"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_MEDIUM
+
+steps:
+  # ── Build images (parallel) ───────────────────────────────────────────────
+
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:latest
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:$COMMIT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:latest
+      - apps/api
+    waitFor: ["-"]
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web:latest
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web:$COMMIT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web:latest
+      - --build-arg
+      - NEXT_PUBLIC_API_URL=$_API_URL
+      - --build-arg
+      - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$_CLERK_KEY
+      - --build-arg
+      - NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+      - --build-arg
+      - NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+      - --build-arg
+      - NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
+      - --build-arg
+      - NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+      - apps/web
+    waitFor: ["-"]
+
+  # ── Push images ────────────────────────────────────────────────────────────
+
+  - id: push-api
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api]
+    waitFor: [build-api]
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web]
+    waitFor: [build-web]
+
+  # ── Run Alembic migrations (Cloud Run Job) ────────────────────────────────
+  # Creates job on first run, updates on subsequent runs, then executes.
+
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        IMAGE=${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:$COMMIT_SHA
+        JOB=studyforge-migrate
+
+        gcloud run jobs update $$JOB \
+          --image=$$IMAGE \
+          --region=$_REGION \
+          --set-cloudsql-instances=$PROJECT_ID:$_REGION:studyforge-db \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --set-env-vars=APP_MODE=migrate \
+          --command=alembic \
+          --args=upgrade,head \
+          --task-timeout=300s \
+          --max-retries=0 2>/dev/null \
+        || gcloud run jobs create $$JOB \
+          --image=$$IMAGE \
+          --region=$_REGION \
+          --set-cloudsql-instances=$PROJECT_ID:$_REGION:studyforge-db \
+          --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+          --set-env-vars=APP_MODE=migrate \
+          --command=alembic \
+          --args=upgrade,head \
+          --task-timeout=300s \
+          --max-retries=0
+
+        gcloud run jobs execute $$JOB --region=$_REGION --wait
+    waitFor: [push-api]
+
+  # ── Deploy API ─────────────────────────────────────────────────────────────
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    args:
+      - gcloud
+      - run
+      - deploy
+      - studyforge-api
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:$COMMIT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --allow-unauthenticated
+      - --memory=2Gi
+      - --cpu=1
+      - --min-instances=0
+      - --max-instances=10
+      - --timeout=300
+      - --concurrency=80
+      - --set-cloudsql-instances=$PROJECT_ID:$_REGION:studyforge-db
+      - --set-secrets=DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,SECRET_KEY=SECRET_KEY:latest
+      - --set-env-vars=APP_MODE=api,APP_ENV=prod,AI_PROVIDER=gemini_vertex,GOOGLE_PROJECT_ID=$PROJECT_ID,GOOGLE_LOCATION=$_REGION,GCS_BUCKET=studyforge-$PROJECT_ID-files,CHROMA_HOST=$_CHROMA_HOST,CHROMA_PORT=$_CHROMA_PORT
+    waitFor: [migrate]
+
+  # ── Deploy Celery worker ───────────────────────────────────────────────────
+  # Uses the same image as the API; APP_MODE=worker switches the entrypoint.
+  # min-instances=1 keeps one worker alive to process tasks immediately.
+
+  - id: deploy-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    args:
+      - gcloud
+      - run
+      - deploy
+      - studyforge-worker
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:$COMMIT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --memory=2Gi
+      - --cpu=1
+      - --min-instances=1
+      - --max-instances=3
+      - --timeout=3600
+      - --concurrency=1
+      - --set-cloudsql-instances=$PROJECT_ID:$_REGION:studyforge-db
+      - --set-secrets=DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,SECRET_KEY=SECRET_KEY:latest
+      - --set-env-vars=APP_MODE=worker,APP_ENV=prod,AI_PROVIDER=gemini_vertex,GOOGLE_PROJECT_ID=$PROJECT_ID,GOOGLE_LOCATION=$_REGION,GCS_BUCKET=studyforge-$PROJECT_ID-files,CHROMA_HOST=$_CHROMA_HOST,CHROMA_PORT=$_CHROMA_PORT,CELERY_CONCURRENCY=2
+    waitFor: [push-api]
+
+  # ── Deploy Web ─────────────────────────────────────────────────────────────
+
+  - id: deploy-web
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    args:
+      - gcloud
+      - run
+      - deploy
+      - studyforge-web
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web:$COMMIT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --allow-unauthenticated
+      - --memory=512Mi
+      - --cpu=1
+      - --min-instances=0
+      - --max-instances=5
+      - --timeout=60
+      - --set-env-vars=NODE_ENV=production
+      - --set-secrets=CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest
+    waitFor: [push-web, deploy-api]
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web:latest

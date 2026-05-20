@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     GEMINI_CHAT_MODEL: str = "gemini-2.5-flash"
     GEMINI_EMBED_MODEL: str = "text-embedding-004"
 
+    # Google Cloud Storage (primary storage on GCP)
+    # Set GCS_BUCKET to activate GCS; leave empty to fall back to S3/MinIO (local dev)
+    GCS_BUCKET: str = ""
+    GCS_EMULATOR_HOST: str = ""  # e.g. http://localhost:4443 for fake-gcs-server
+
     # Ollama local settings (used when AI_PROVIDER=ollama)
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
     OLLAMA_CHAT_MODEL: str = "llama3.2:3b"
