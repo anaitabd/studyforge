@@ -34,88 +34,8 @@ export interface StudyRoom {
   is_active: boolean; created_at: string; member_count: number; online_count?: number;
 }
 
-const unwrap = <T,>(data: any, key: string): T => data?.[key] ?? data;
-
-/**
- * @deprecated Use the dedicated hook in use-groups.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useGroups() {
-  return useQuery<Group[]>({ queryKey: ["groups"], queryFn: async () => unwrap(await apiGet("/api/v1/groups"), "groups"), staleTime: 30_000 });
-}
-/**
- * @deprecated Use the dedicated hook in use-groups.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useGroup(groupId: string) {
-  return useQuery<Group & { files: GroupFile[] }>({ queryKey: ["groups", groupId], queryFn: () => apiGet(`/api/v1/groups/${groupId}`), enabled: !!groupId });
-}
-/**
- * @deprecated Use the dedicated hook in use-files.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useGroupFiles(groupId: string) {
-  return useQuery<GroupFile[]>({
-    queryKey: ["files", groupId],
-    queryFn: async () => unwrap(await apiGet(`/api/v1/groups/${groupId}/files`), "files"),
-    refetchInterval: (q) => (q.state.data?.some((f) => f.status === "processing" || f.status === "uploading") ? 3000 : false),
-    enabled: !!groupId,
-  });
-}
-export function useFileStatus(groupId: string, fileId: string) {
-  return useQuery<GroupFile>({
-    queryKey: ["fileStatus", fileId],
-    queryFn: () => apiGet(`/api/v1/groups/${groupId}/files/${fileId}/status`),
-    refetchInterval: (q) => (["uploading", "processing"].includes(q.state.data?.status ?? "") ? 2000 : false),
-    enabled: !!groupId && !!fileId,
-  });
-}
-/**
- * @deprecated Use the dedicated hook in use-chat.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useChatHistory(groupId: string) {
-  return useQuery<{ messages: ChatMessage[] }>({ queryKey: ["chat", groupId], queryFn: () => apiGet(`/api/v1/groups/${groupId}/chat/history`), enabled: !!groupId });
-}
 export function usePinnedMessages(groupId: string) {
   return useQuery<{ messages: ChatMessage[] }>({ queryKey: ["pinned", groupId], queryFn: () => apiGet(`/api/v1/groups/${groupId}/chat/pinned`), enabled: !!groupId });
-}
-/**
- * @deprecated Use the dedicated hook in use-exams.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useExams(groupId: string) {
-  return useQuery<Exam[]>({ queryKey: ["exams", groupId], queryFn: async () => unwrap(await apiGet(`/api/v1/groups/${groupId}/exams`), "exams"), enabled: !!groupId });
-}
-export function useExam(groupId: string, examId: string) {
-  return useQuery<Exam>({ queryKey: ["exam", examId], queryFn: () => apiGet(`/api/v1/groups/${groupId}/exams/${examId}`), enabled: !!examId });
-}
-/**
- * @deprecated Use the dedicated hook in use-flashcards.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useFlashcardSets(groupId: string) {
-  return useQuery<FlashcardSet[]>({ queryKey: ["flashcards", groupId], queryFn: async () => unwrap(await apiGet(`/api/v1/groups/${groupId}/flashcards`), "sets"), enabled: !!groupId });
-}
-export function useFlashcardSet(groupId: string, setId: string) {
-  return useQuery({ queryKey: ["flashcardSet", setId], queryFn: () => apiGet(`/api/v1/groups/${groupId}/flashcards/${setId}`), enabled: !!setId });
-}
-export function useStudyDue(groupId: string, setId: string) {
-  return useQuery({ queryKey: ["studyDue", setId], queryFn: async () => unwrap(await apiGet(`/api/v1/groups/${groupId}/flashcards/${setId}/study`), "cards"), enabled: !!setId, staleTime: 0 });
-}
-/**
- * @deprecated Use the dedicated hook in use-rooms.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useRooms(groupId: string) {
-  return useQuery<StudyRoom[]>({ queryKey: ["rooms", groupId], queryFn: async () => unwrap(await apiGet(`/api/v1/rooms/group/${groupId}`), "rooms"), enabled: !!groupId });
-}
-/**
- * @deprecated Use the dedicated hook in use-teacher.ts instead.
- * This hook has a different query key causing cache divergence.
- */
-export function useTeacherAnalytics(groupId: string, enabled = true) {
-  return useQuery({ queryKey: ["analytics", groupId], queryFn: () => apiGet(`/api/v1/teacher/groups/${groupId}/analytics`), enabled: !!groupId && enabled });
 }
 
 export function useNotifications() {
@@ -123,7 +43,7 @@ export function useNotifications() {
     queryKey: ["notifications"],
     queryFn: async () => {
       const data = await apiGet("/api/v1/notifications");
-      return unwrap(data, "notifications");
+      return (data as any)?.notifications ?? data;
     },
     staleTime: 60_000,
   });

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { X, Loader2, ArrowRight, ArrowLeft, Sparkles, FileText, Info } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiPost, LONG_AI_REQUEST_TIMEOUT_MS } from "@/lib/api";
-import { useGroupFiles } from "@/lib/hooks/useApi";
+import { useFiles as useGroupFiles } from "@/lib/hooks/use-files";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 

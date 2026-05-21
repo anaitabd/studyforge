@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Loader2, Sparkles, FileText, Presentation } from "lucide-react";
-import { useGroupFiles } from "@/lib/hooks/useApi";
+import { useFiles as useGroupFiles } from "@/lib/hooks/use-files";
 import { useGenerateSlideDeck } from "@/lib/hooks/use-slides";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";

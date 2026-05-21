@@ -1,7 +1,7 @@
 "use client";
 
 import { use } from "react";
-import { useGroupFiles } from "@/lib/hooks/useApi";
+import { useFiles as useGroupFiles } from "@/lib/hooks/use-files";
 import { FileUploadZone } from "@/components/files/file-upload-zone";
 import { FileList } from "@/components/files/file-list";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText } from "lucide-react";
-import { useGroupFiles } from "@/lib/hooks/useApi";
+import { useFiles as useGroupFiles } from "@/lib/hooks/use-files";
 import { FileStatusBadge } from "@/components/files/file-status-badge";
 
 export function FilesContextSidebar({ groupId }: { groupId: string }) {
