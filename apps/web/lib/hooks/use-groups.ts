@@ -50,6 +50,26 @@ export function useCreateGroup() {
   });
 }
 
+export interface GroupMember {
+  user_id: string;
+  role: "owner" | "teacher" | "student";
+  joined_at: string;
+  full_name: string;
+  email: string;
+  avatar_url: string | null;
+}
+
+export function useGroupMembers(groupId: string) {
+  return useQuery<{ members: GroupMember[] }>({
+    queryKey: ["group-members", groupId],
+    queryFn: async () => {
+      const res = await api.get(`/api/v1/groups/${groupId}/members`);
+      return res.data;
+    },
+    enabled: !!groupId,
+  });
+}
+
 export function useDeleteGroup() {
   const qc = useQueryClient();
   return useMutation({

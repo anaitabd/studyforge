@@ -212,6 +212,39 @@ async def get_group(
     }
 
 
+@router.get("/{group_id}/members")
+async def list_group_members(group_id: str, current_user: CurrentUser, db: DB):
+    membership_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == current_user.id,
+        )
+    )
+    if not membership_result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not a member of this group")
+
+    result = await db.execute(
+        select(GroupMember, User)
+        .join(User, User.id == GroupMember.user_id)
+        .where(GroupMember.group_id == group_id)
+        .order_by(GroupMember.joined_at)
+    )
+    rows = result.all()
+    return {
+        "members": [
+            {
+                "user_id": member.user_id,
+                "role": member.role,
+                "joined_at": member.joined_at.isoformat(),
+                "full_name": user.name,
+                "email": user.email,
+                "avatar_url": user.avatar_url,
+            }
+            for member, user in rows
+        ]
+    }
+
+
 @router.delete(
     "/{group_id}",
     responses={403: {"description": "Only the owner can delete a group"}},
