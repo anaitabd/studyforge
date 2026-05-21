@@ -784,6 +784,84 @@ async def at_risk_students(slug: str, current_user: CurrentUser, db: DB):
     return {"at_risk": students, "total": len(students)}
 
 
+@router.get("/{slug}/students/{user_id}")
+async def get_student_profile(slug: str, user_id: str, current_user: CurrentUser, db: DB):
+    """Student profile: basic info, cohort, last active, exam score trend, weak areas."""
+    from sqlalchemy import text as sa_text
+    from app.models.exam import ExamSession
+
+    org = await _get_org_by_slug(slug, db)
+    await _require_org_role(db, current_user.id, org.id, "teacher")
+
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Cohort membership
+    cohort_row = (await db.execute(
+        select(CohortMember, Cohort)
+        .join(Cohort, Cohort.id == CohortMember.cohort_id)
+        .where(
+            CohortMember.user_id == user_id,
+            Cohort.org_id == org.id,
+        )
+        .order_by(CohortMember.joined_at.desc())
+        .limit(1)
+    )).first()
+    cohort_name = cohort_row[1].name if cohort_row else None
+
+    # Last active
+    last_active: str | None = None
+    try:
+        la_row = (await db.execute(sa_text(
+            "SELECT MAX(time) FROM user_events WHERE org_id = :org_id AND user_id = :uid"
+        ), {"org_id": org.id, "uid": user_id})).scalar()
+        last_active = la_row.isoformat() if la_row else None
+    except Exception as exc:
+        logger.warning("last_active query failed: %s", exc)
+
+    # Exam score trend (last 10 sessions, chronological)
+    sessions = (await db.execute(
+        select(ExamSession.score_over_20, ExamSession.submitted_at)
+        .where(
+            ExamSession.user_id == user_id,
+            ExamSession.score_over_20.isnot(None),
+        )
+        .order_by(ExamSession.submitted_at.desc())
+        .limit(10)
+    )).all()
+    exam_score_trend = [round(float(r[0]), 2) for r in reversed(sessions)]
+
+    # Weak areas: derive from exam events (topics with lowest avg scores)
+    weak_areas: list[str] = []
+    try:
+        wa_rows = (await db.execute(sa_text(
+            """
+            SELECT metadata->>'topic' AS topic, AVG((metadata->>'score')::float) AS avg
+            FROM user_events
+            WHERE org_id = :org_id AND user_id = :uid
+              AND event_type = 'exam.submitted'
+              AND metadata->>'topic' IS NOT NULL
+            GROUP BY topic HAVING AVG((metadata->>'score')::float) < 12
+            ORDER BY avg ASC LIMIT 5
+            """
+        ), {"org_id": org.id, "uid": user_id})).all()
+        weak_areas = [r[0] for r in wa_rows if r[0]]
+    except Exception as exc:
+        logger.warning("weak_areas query failed: %s", exc)
+
+    return {
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "avatar_url": user.avatar_url,
+        "cohort_name": cohort_name,
+        "last_active": last_active,
+        "weak_areas": weak_areas,
+        "exam_score_trend": exam_score_trend,
+    }
+
+
 @router.get("/{slug}/students/{user_id}/timeline")
 async def student_timeline(slug: str, user_id: str, current_user: CurrentUser, db: DB):
     """Chronological activity list from user_events for a specific student."""
