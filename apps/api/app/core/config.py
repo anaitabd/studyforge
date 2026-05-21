@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # GCP / Vertex AI — used by GeminiVertexProvider and ClaudeVertexProvider
     GCP_PROJECT_ID: str = "studyforge-495618"
-    GCP_LOCATION: str = "global"
+    GCP_LOCATION: str = "europe-west9"
     GEMINI_CHAT_MODEL: str = "gemini-2.5-flash"
     GEMINI_EMBED_MODEL: str = "text-multilingual-embedding-002"
 
