@@ -784,6 +784,47 @@ async def at_risk_students(slug: str, current_user: CurrentUser, db: DB):
     return {"at_risk": students, "total": len(students)}
 
 
+@router.get("/{slug}/billing")
+async def get_org_billing(slug: str, current_user: CurrentUser, db: DB):
+    """Org subscription/billing status — reads from Subscription table."""
+    from app.models.notification import Subscription
+
+    org = await _get_org_by_slug(slug, db)
+    await _require_org_role(db, current_user.id, org.id, "admin")
+
+    # Look for a subscription tied to the org owner or the org's school_id
+    sub = (await db.execute(
+        select(Subscription).where(
+            Subscription.school_id == org.id,
+        ).order_by(Subscription.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    # Fallback: look up by the org's stripe_customer_id
+    if sub is None and org.stripe_customer_id:
+        sub = (await db.execute(
+            select(Subscription).where(
+                Subscription.stripe_customer_id == org.stripe_customer_id,
+            ).order_by(Subscription.created_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+    if sub:
+        return {
+            "plan": sub.plan,
+            "status": sub.status,
+            "current_period_end": sub.period_end.isoformat() if sub.period_end else None,
+            "cancel_at_period_end": sub.cancel_at_period_end,
+            "stripe_customer_id": sub.stripe_customer_id or org.stripe_customer_id,
+        }
+
+    return {
+        "plan": "free",
+        "status": "active",
+        "current_period_end": None,
+        "cancel_at_period_end": False,
+        "stripe_customer_id": org.stripe_customer_id,
+    }
+
+
 @router.get("/{slug}/students/{user_id}")
 async def get_student_profile(slug: str, user_id: str, current_user: CurrentUser, db: DB):
     """Student profile: basic info, cohort, last active, exam score trend, weak areas."""
