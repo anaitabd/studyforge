@@ -12,6 +12,11 @@ chroma_db/
 *.pptx
 .DS_Store
 
+# Service account keys — never commit
+*-sa-key.json
+*-service-account.json
+*serviceaccount*.json
+
 # Terraform local working files/state
 **/.terraform/
 *.tfstate
