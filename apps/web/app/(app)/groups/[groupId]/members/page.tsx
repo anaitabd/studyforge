@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import { Mail, UserPlus, Crown, GraduationCap } from "lucide-react";
-import { useGroup } from "@/lib/hooks/useApi";
+import { useGroup } from "@/lib/hooks/use-groups";
 import { InviteMemberDialog } from "@/components/groups/invite-member-dialog";
 
 export default function MembersPage({ params }: { params: Promise<{ groupId: string }> }) {

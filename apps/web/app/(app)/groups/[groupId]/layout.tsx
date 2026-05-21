@@ -4,7 +4,7 @@ import { use } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessageSquare, FileText, GraduationCap, BookOpen, Map, Users, Presentation, ArrowLeft, Sparkles, Network } from "lucide-react";
-import { useGroup } from "@/lib/hooks/useApi";
+import { useGroup } from "@/lib/hooks/use-groups";
 import { cn } from "@/lib/utils";
 
 const TABS = [

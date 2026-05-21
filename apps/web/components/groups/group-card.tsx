@@ -7,7 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiDelete } from "@/lib/api";
 import toast from "react-hot-toast";
-import type { Group } from "@/lib/hooks/useApi";
+import type { Group } from "@/lib/hooks/use-groups";
 
 export function GroupCard({ group }: { group: Group }) {
   const qc = useQueryClient();

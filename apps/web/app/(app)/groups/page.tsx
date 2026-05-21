@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Plus, Pencil } from "lucide-react";
-import { useGroups } from "@/lib/hooks/useApi";
+import { useGroups } from "@/lib/hooks/use-groups";
 import { GroupCard } from "@/components/groups/group-card";
 import { NewGroupDialog } from "@/components/groups/new-group-dialog";
 

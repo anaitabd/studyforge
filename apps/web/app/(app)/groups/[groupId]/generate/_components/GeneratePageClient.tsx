@@ -11,7 +11,7 @@ import {
   AlertTriangle, CheckCircle2, Loader2, Download,
   Sparkles,
 } from "lucide-react";
-import { useGroups } from "@/lib/hooks/useApi";
+import { useGroups } from "@/lib/hooks/use-groups";
 import { cn } from "@/lib/utils";
 import {
   useGroupFilesForGenerate,

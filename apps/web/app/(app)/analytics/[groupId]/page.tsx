@@ -4,7 +4,7 @@ import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Users, FileText, MessageSquare, GraduationCap, BookOpen, ChevronUp, ChevronDown, Download, type LucideIcon } from "lucide-react";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell } from "recharts";
-import { useTeacherAnalytics } from "@/lib/hooks/useApi";
+import { useGroupAnalytics as useTeacherAnalytics } from "@/lib/hooks/use-teacher";
 import { cn } from "@/lib/utils";
 
 interface StudentStat { user_id: string; name: string; email: string; exams_taken: number; avg_score: number | null; chat_count: number; files_read?: number; active_minutes?: number; last_active?: string | null; joined_at: string; }

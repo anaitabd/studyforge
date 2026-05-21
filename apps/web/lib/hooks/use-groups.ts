@@ -28,6 +28,17 @@ export function useGroups() {
   });
 }
 
+export function useGroup(groupId: string) {
+  return useQuery<Group & { files: import("@/lib/hooks/use-files").GroupFile[] }>({
+    queryKey: ["groups", groupId],
+    queryFn: async () => {
+      const res = await api.get(`/api/v1/groups/${groupId}`);
+      return res.data;
+    },
+    enabled: !!groupId,
+  });
+}
+
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({

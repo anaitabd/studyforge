@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import { Plus, Presentation } from "lucide-react";
 import { useSlideDecks } from "@/lib/hooks/use-slides";
-import { useGroups } from "@/lib/hooks/useApi";
+import { useGroups } from "@/lib/hooks/use-groups";
 import { useUser } from "@clerk/nextjs";
 import { DeckCard } from "@/components/slides/deck-card";
 import { GenerateDeckDialog } from "@/components/slides/generate-deck-dialog";

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Plus, KeyRound, Users } from "lucide-react";
-import { useGroups, useRooms } from "@/lib/hooks/useApi";
+import { useGroups } from "@/lib/hooks/use-groups";
+import { useRooms } from "@/lib/hooks/use-rooms";
 import { RoomCard } from "@/components/rooms/room-card";
 import { CreateRoomDialog } from "@/components/rooms/create-room-dialog";
 import { JoinRoomDialog } from "@/components/rooms/join-room-dialog";

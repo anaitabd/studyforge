@@ -2,7 +2,8 @@
 
 import { use, useEffect, useRef, useCallback } from "react";
 import { useChat } from "@/lib/hooks/use-chat";
-import { useChatHistory, useGroupFiles } from "@/lib/hooks/useApi";
+import { useChatHistory } from "@/lib/hooks/use-chat";
+import { useFiles as useGroupFiles } from "@/lib/hooks/use-files";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ChatInput, type ChatInputHandle } from "@/components/chat/chat-input";
 import { PinnedMessagesSidebar } from "@/components/chat/pinned-sidebar";
@@ -20,7 +21,7 @@ export default function ChatPage({ params }: { params: Promise<{ groupId: string
   const hydrated = useRef(false);
 
   useEffect(() => {
-    if (isSuccess && history?.messages && !hydrated.current) { hydrated.current = true; setHistory(history.messages); }
+    if (isSuccess && history?.length && !hydrated.current) { hydrated.current = true; setHistory(history); }
   }, [isSuccess, history, setHistory]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);

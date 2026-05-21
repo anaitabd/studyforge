@@ -2,7 +2,8 @@
 
 import { use, useState } from "react";
 import { Plus, GraduationCap } from "lucide-react";
-import { useExams, useGroup } from "@/lib/hooks/useApi";
+import { useExams } from "@/lib/hooks/use-exams";
+import { useGroup } from "@/lib/hooks/use-groups";
 import { ExamCard } from "@/components/exams/exam-card";
 import { GenerateExamModal } from "@/components/exams/generate-exam-modal";
 

@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import { Plus, BookOpen } from "lucide-react";
-import { useFlashcardSets } from "@/lib/hooks/useApi";
+import { useFlashcardSets } from "@/lib/hooks/use-flashcards";
 import { FlashcardSetCard } from "@/components/flashcards/flashcard-set-card";
 import { GenerateFlashcardsDialog } from "@/components/flashcards/generate-flashcards-dialog";
 

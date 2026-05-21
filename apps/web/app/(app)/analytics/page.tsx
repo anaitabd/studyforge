@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { BarChart2 } from "lucide-react";
-import { useGroups } from "@/lib/hooks/useApi";
+import { useGroups } from "@/lib/hooks/use-groups";
 
 export default function AnalyticsIndex() {
   const { data: groups, isLoading } = useGroups();

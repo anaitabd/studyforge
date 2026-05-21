@@ -10,7 +10,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer,
 } from "recharts";
-import { useGroups } from "@/lib/hooks/useApi";
+import { useGroups } from "@/lib/hooks/use-groups";
 import { GroupCard } from "@/components/groups/group-card";
 import { useContinueLearning, type ContinueLearningItem } from "@/lib/hooks/use-continue-learning";
 import { usePersonalKpis, useStreak } from "@/lib/hooks/use-individual-kpis";
