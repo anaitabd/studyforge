@@ -23,6 +23,9 @@ function useBilling(slug: string) {
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
+  etudiant: "Étudiant",
+  premium: "Premium",
+  ecole: "École",
   personal: "Personal",
   school: "School",
 };
