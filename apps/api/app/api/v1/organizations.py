@@ -817,3 +817,174 @@ async def student_timeline(slug: str, user_id: str, current_user: CurrentUser, d
         events = []
 
     return {"user_id": user_id, "events": events}
+
+
+@router.get("/{slug}/cohorts/{cohort_id}/students")
+async def list_cohort_students(slug: str, cohort_id: str, current_user: CurrentUser, db: DB):
+    """Students in a cohort with lightweight analytics (last active, avg exam score, path progress)."""
+    from sqlalchemy import text as sa_text
+    from app.models.learning_path import LearningPathProgress
+
+    org = await _get_org_by_slug(slug, db)
+    await _require_org_role(db, current_user.id, org.id, "teacher")
+
+    members = (await db.execute(
+        select(CohortMember, User)
+        .join(User, User.id == CohortMember.user_id)
+        .where(CohortMember.cohort_id == cohort_id)
+        .order_by(User.name)
+    )).all()
+
+    if not members:
+        return {"students": []}
+
+    user_ids = [u.id for _, u in members]
+
+    # Last active per user from user_events (best effort — table may not exist yet)
+    last_active_map: dict[str, str | None] = {}
+    try:
+        rows = (await db.execute(sa_text(
+            "SELECT user_id, MAX(time) AS last_active FROM user_events "
+            "WHERE org_id = :org_id AND user_id = ANY(:uids) GROUP BY user_id"
+        ), {"org_id": org.id, "uids": user_ids})).all()
+        last_active_map = {r[0]: r[1].isoformat() if r[1] else None for r in rows}
+    except Exception as exc:
+        logger.warning("last_active query failed: %s", exc)
+
+    # Avg exam score per user (score_over_20 from ExamSession, all groups)
+    from app.models.exam import ExamSession
+    score_rows = (await db.execute(
+        select(ExamSession.user_id, func.avg(ExamSession.score_over_20))
+        .where(
+            ExamSession.user_id.in_(user_ids),
+            ExamSession.score_over_20.isnot(None),
+        )
+        .group_by(ExamSession.user_id)
+    )).all()
+    avg_score_map = {r[0]: round(float(r[1]), 2) for r in score_rows}
+
+    # Paths completed per user (distinct path_id with at least one module completed)
+    path_rows = (await db.execute(
+        select(LearningPathProgress.user_id, func.count(func.distinct(LearningPathProgress.path_id)))
+        .where(LearningPathProgress.user_id.in_(user_ids))
+        .group_by(LearningPathProgress.user_id)
+    )).all()
+    paths_map = {r[0]: int(r[1]) for r in path_rows}
+
+    # Is at-risk: no activity in last 7 days
+    at_risk_ids: set[str] = set()
+    try:
+        risk_rows = (await db.execute(sa_text(
+            "SELECT user_id FROM user_events "
+            "WHERE org_id = :org_id AND user_id = ANY(:uids) "
+            "AND time >= NOW() - INTERVAL '7 days' GROUP BY user_id"
+        ), {"org_id": org.id, "uids": user_ids})).all()
+        active_ids = {r[0] for r in risk_rows}
+        at_risk_ids = set(user_ids) - active_ids
+    except Exception as exc:
+        logger.warning("at_risk query failed: %s", exc)
+
+    return {
+        "students": [
+            {
+                "user_id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "avatar_url": user.avatar_url,
+                "last_active": last_active_map.get(user.id),
+                "avg_exam_score": avg_score_map.get(user.id),
+                "paths_completed": paths_map.get(user.id, 0),
+                "paths_total": paths_map.get(user.id, 0),  # total context unavailable without org→group link
+                "flashcard_retention": None,
+                "is_at_risk": user.id in at_risk_ids,
+            }
+            for _, user in members
+        ]
+    }
+
+
+@router.get("/{slug}/assignments/my")
+async def my_assignments(slug: str, current_user: CurrentUser, db: DB):
+    """Assignments visible to the current user across all cohorts they belong to in this org."""
+    org = await _get_org_by_slug(slug, db)
+    await _require_org_role(db, current_user.id, org.id, "viewer")
+
+    # Get cohorts this user is a member of, in this org
+    cohort_ids_result = await db.execute(
+        select(CohortMember.cohort_id)
+        .join(Cohort, Cohort.id == CohortMember.cohort_id)
+        .where(
+            CohortMember.user_id == current_user.id,
+            Cohort.org_id == org.id,
+        )
+    )
+    cohort_ids = [r[0] for r in cohort_ids_result.all()]
+    if not cohort_ids:
+        return {"assignments": []}
+
+    # Assignments for those cohorts
+    assignments = (await db.execute(
+        select(Assignment).where(Assignment.cohort_id.in_(cohort_ids)).order_by(Assignment.due_at.asc().nullslast())
+    )).scalars().all()
+
+    if not assignments:
+        return {"assignments": []}
+
+    assignment_ids = [a.id for a in assignments]
+
+    # User's progress for each assignment
+    progress_rows = (await db.execute(
+        select(AssignmentProgress).where(
+            AssignmentProgress.assignment_id.in_(assignment_ids),
+            AssignmentProgress.user_id == current_user.id,
+        )
+    )).scalars().all()
+    progress_map = {p.assignment_id: p for p in progress_rows}
+
+    return {
+        "assignments": [
+            {
+                "id": a.id,
+                "title": a.title,
+                "resource_type": a.resource_type,
+                "resource_id": a.resource_id,
+                "group_id": "",  # no group on assignment; cohort_id used instead
+                "due_at": a.due_at.isoformat() if a.due_at else None,
+                "instructions": a.instructions,
+                "progress": (
+                    {
+                        "status": progress_map[a.id].status,
+                        "score_over_20": progress_map[a.id].score,
+                    }
+                    if a.id in progress_map
+                    else {"status": "not_started", "score_over_20": None}
+                ),
+            }
+            for a in assignments
+        ]
+    }
+
+
+@router.get("/{slug}/kpis/dau-trend")
+async def dau_trend(slug: str, current_user: CurrentUser, db: DB):
+    """Daily active users for the past 30 days."""
+    from sqlalchemy import text as sa_text
+
+    org = await _get_org_by_slug(slug, db)
+    await _require_org_role(db, current_user.id, org.id, "viewer")
+
+    try:
+        rows = (await db.execute(sa_text(
+            """
+            SELECT DATE(time AT TIME ZONE 'UTC') AS day, COUNT(DISTINCT user_id) AS cnt
+            FROM user_events
+            WHERE org_id = :org_id AND time >= NOW() - INTERVAL '30 days'
+            GROUP BY day ORDER BY day
+            """
+        ), {"org_id": org.id})).all()
+        trend = [{"date": row[0].isoformat(), "count": int(row[1])} for row in rows]
+    except Exception as exc:
+        logger.warning("dau_trend query failed for org %s: %s", org.id, exc)
+        trend = []
+
+    return {"trend": trend}
