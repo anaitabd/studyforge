@@ -1,42 +1,51 @@
-from unittest.mock import patch
+"""Storage service tests — verify GCS client configuration."""
+from unittest.mock import MagicMock, patch
 
 
-def test_legacy_r2_credentials_are_passed_to_s3_client(monkeypatch):
-    from app.services import storage_service as storage_module
+def test_gcs_client_is_built_on_init(monkeypatch):
+    """StorageService initialises a GCS client using ADC."""
+    import app.services.storage_service as storage_module
 
-    monkeypatch.setattr(storage_module.settings, "S3_REGION", "us-east-1")
-    monkeypatch.setattr(storage_module.settings, "S3_ENDPOINT_URL", "")
-    monkeypatch.setattr(storage_module.settings, "R2_ENDPOINT", "http://minio:9000")
-    monkeypatch.setattr(storage_module.settings, "S3_USE_AWS_MANAGED_CREDENTIALS", True)
+    monkeypatch.setattr(storage_module.settings, "GCS_BUCKET", "test-bucket")
+    monkeypatch.setattr(storage_module.settings, "GCS_EMULATOR_HOST", "")
+    monkeypatch.setattr(storage_module.settings, "GCP_PROJECT_ID", "test-project")
 
-    service = storage_module.StorageService.__new__(storage_module.StorageService)
-    legacy_credentials = {
-        "aws_access_key_id": "minioadmin",
-        "aws_secret_access_key": "minioadmin",
-    }
+    with patch("google.cloud.storage.Client") as mock_client_cls:
+        mock_client_cls.return_value = MagicMock()
+        svc = storage_module.StorageService()
 
-    with patch.object(storage_module.boto3, "client") as mock_client:
-        service._build_s3_client(legacy_credentials)
-
-    mock_client.assert_called_once_with(
-        "s3",
-        region_name="us-east-1",
-        endpoint_url="http://minio:9000",
-        aws_access_key_id="minioadmin",
-        aws_secret_access_key="minioadmin",
-    )
+    mock_client_cls.assert_called_once_with(project="test-project")
+    assert svc.bucket_name == "test-bucket"
 
 
-def test_s3_client_uses_aws_provider_chain_without_legacy_credentials(monkeypatch):
-    from app.services import storage_service as storage_module
+def test_gcs_emulator_uses_anonymous_credentials(monkeypatch):
+    """StorageService uses AnonymousCredentials when GCS_EMULATOR_HOST is set."""
+    import app.services.storage_service as storage_module
 
-    monkeypatch.setattr(storage_module.settings, "S3_REGION", "us-east-1")
-    monkeypatch.setattr(storage_module.settings, "S3_ENDPOINT_URL", "")
-    monkeypatch.setattr(storage_module.settings, "R2_ENDPOINT", "")
+    monkeypatch.setattr(storage_module.settings, "GCS_BUCKET", "test-bucket")
+    monkeypatch.setattr(storage_module.settings, "GCS_EMULATOR_HOST", "http://localhost:4443")
+    monkeypatch.setattr(storage_module.settings, "GCP_PROJECT_ID", "local")
 
-    service = storage_module.StorageService.__new__(storage_module.StorageService)
+    with patch("google.cloud.storage.Client") as mock_client_cls:
+        mock_client_cls.return_value = MagicMock()
+        svc = storage_module.StorageService()
 
-    with patch.object(storage_module.boto3, "client") as mock_client:
-        service._build_s3_client({})
+    call_kwargs = mock_client_cls.call_args[1]
+    assert call_kwargs["client_options"] == {"api_endpoint": "http://localhost:4443"}
+    assert svc.bucket_name == "test-bucket"
 
-    mock_client.assert_called_once_with("s3", region_name="us-east-1")
+
+def test_bucket_property_is_lazily_created(monkeypatch):
+    """The bucket property initialises on first access."""
+    import app.services.storage_service as storage_module
+
+    monkeypatch.setattr(storage_module.settings, "GCS_BUCKET", "test-bucket")
+    monkeypatch.setattr(storage_module.settings, "GCS_EMULATOR_HOST", "")
+    monkeypatch.setattr(storage_module.settings, "GCP_PROJECT_ID", "test-project")
+
+    mock_client = MagicMock()
+    with patch("google.cloud.storage.Client", return_value=mock_client):
+        svc = storage_module.StorageService()
+
+    _ = svc.bucket
+    mock_client.bucket.assert_called_once_with("test-bucket")

@@ -35,8 +35,7 @@ class Settings(BaseSettings):
     GOOGLE_LOCATION: str = "europe-west9"
 
     # Google Cloud Storage (primary storage on GCP)
-    # Set GCS_BUCKET to activate GCS; leave empty to fall back to S3/MinIO (local dev)
-    GCS_BUCKET: str = ""
+    GCS_BUCKET: str = "studyforge-495618-files"
     GCS_EMULATOR_HOST: str = ""  # e.g. http://localhost:4443 for fake-gcs-server
 
     # Ollama local settings (used when AI_PROVIDER=ollama)
@@ -57,14 +56,10 @@ class Settings(BaseSettings):
     BEDROCK_EMBED_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
     CHROMA_HOST: str = "chroma_server"
     CHROMA_PORT: int = 8000
-    # Primary S3 configuration
+    # S3/MinIO — kept as empty-string stubs for backward compat (local docker-compose only)
     S3_BUCKET: str = ""
-    S3_REGION: str = "us-east-1"
+    S3_REGION: str = ""
     S3_ENDPOINT_URL: str = ""
-    S3_KMS_KEY_ID: str = ""
-    S3_AUTO_CREATE_BUCKET: bool = False
-    S3_USE_AWS_MANAGED_CREDENTIALS: bool = True
-    S3_SERVER_SIDE_ENCRYPTION: str = ""  # "AES256" (SSE-S3) or "aws:kms" (SSE-KMS)
 
     # Temporary backward-compatibility for legacy R2/MinIO env names
     R2_BUCKET: str = ""
