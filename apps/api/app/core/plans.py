@@ -1,8 +1,17 @@
 """
 Moroccan pricing plans. Limits are checked at the API layer via rate_limiter.
+
+stripe_price_id values are populated at runtime from env vars (STRIPE_*_PRICE_ID)
+so they never need to be hardcoded. The placeholder strings are only used as a
+fallback when the env var is empty (which blocks checkout creation safely).
 """
 
-PLANS: dict = {
+from __future__ import annotations
+
+
+def _build_plans() -> dict:
+    from app.core.config import settings  # late import avoids circular deps
+    return {
     "free": {
         "name_fr": "Gratuit",
         "name_ar": "مجاني",
@@ -24,7 +33,7 @@ PLANS: dict = {
         "name_ar": "طالب",
         "price_mad": 49,
         "price_eur": 4.99,
-        "stripe_price_id": "price_etudiant_monthly",
+        "stripe_price_id": settings.STRIPE_ETUDIANT_PRICE_ID or "price_etudiant_monthly",
         "limits": {
             "groups": 10,
             "files_per_group": 30,
@@ -44,7 +53,7 @@ PLANS: dict = {
         "name_ar": "متميز",
         "price_mad": 99,
         "price_eur": 9.99,
-        "stripe_price_id": "price_premium_monthly",
+        "stripe_price_id": settings.STRIPE_PREMIUM_PRICE_ID or "price_premium_monthly",
         "limits": {
             "groups": 50,
             "files_per_group": 100,
@@ -61,7 +70,7 @@ PLANS: dict = {
         "name_ar": "مدرسة",
         "price_mad_per_seat": 29,
         "min_seats": 10,
-        "stripe_price_id": "price_ecole_per_seat",
+        "stripe_price_id": settings.STRIPE_ECOLE_PRICE_ID or "price_ecole_per_seat",
         "limits": {"all": "unlimited"},
         "features": ["all", "org_dashboard", "teacher_tools", "analytics"],
     },
@@ -71,7 +80,7 @@ PLANS: dict = {
         "name_ar": "شخصي",
         "price_mad": 49,
         "price_eur": 4.99,
-        "stripe_price_id": "price_etudiant_monthly",
+        "stripe_price_id": settings.STRIPE_ETUDIANT_PRICE_ID or "price_etudiant_monthly",
         "limits": {
             "groups": 10,
             "files_per_group": 30,
@@ -91,6 +100,9 @@ PLANS: dict = {
         "features": ["all", "org_dashboard", "teacher_tools", "analytics"],
     },
 }
+
+
+PLANS: dict = _build_plans()
 
 
 def get_plan(plan: str) -> dict:

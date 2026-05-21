@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PERSONAL_MONTHLY_PRICE_ID: str = ""
     STRIPE_PERSONAL_ANNUAL_PRICE_ID: str = ""
+    STRIPE_ETUDIANT_PRICE_ID: str = ""
+    STRIPE_PREMIUM_PRICE_ID: str = ""
+    STRIPE_ECOLE_PRICE_ID: str = ""
     # Moroccan CMI payment gateway
     CMI_CLIENT_ID: str = ""
     CMI_PAYMENT_URL: str = "https://payment.cmi.co.ma/fim/est3Dgate"
