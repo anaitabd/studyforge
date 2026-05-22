@@ -30,7 +30,7 @@ case "${APP_MODE:-api}" in
       -w "${GUNICORN_WORKERS:-2}" \
       -b "0.0.0.0:${PORT:-8000}" \
       --timeout 300 \
-      --keepalive 5 \
+      --keep-alive 5 \
       --access-logfile - \
       app.main:app
     ;;
