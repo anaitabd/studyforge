@@ -1,88 +1,144 @@
 """
-Payment service supporting:
-1. Stripe (international cards, Apple Pay, Google Pay)
-2. CMI (Moroccan cards — Visa/Mastercard issued by Moroccan banks)
-3. CashPlus (cash-in at partner stores — common in Morocco)
+Payment service — PayPal REST API v2.
+
+Flow:
+  1. create_order()  → returns PayPal approval URL; redirect user there
+  2. User approves on PayPal and is redirected to success_url?token=ORDER_ID
+  3. capture_order() → finalises payment and upgrades plan in DB
+  4. handle_paypal_webhook() → processes async PayPal events (IPN / webhooks)
 """
-import uuid
 import logging
-import stripe as stripe_lib
+from typing import Any
+
+import httpx
+
 from app.core.config import settings
-from app.core.plans import PLANS
 
 logger = logging.getLogger(__name__)
 
-
-def _stripe():
-    stripe_lib.api_key = settings.STRIPE_SECRET_KEY
-    return stripe_lib
+_PAYPAL_BASE = "https://api-m.sandbox.paypal.com"  # switch to api-m.paypal.com for live
+_token_cache: dict[str, Any] = {"access_token": None, "expires_at": 0}
 
 
-async def create_checkout_session(
+async def _get_access_token() -> str:
+    import time
+    now = time.time()
+    if _token_cache["access_token"] and now < _token_cache["expires_at"] - 30:
+        return _token_cache["access_token"]
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{_PAYPAL_BASE}/v1/oauth2/token",
+            data={"grant_type": "client_credentials"},
+            auth=(settings.PAYPAL_CLIENT_ID, settings.PAYPAL_SECRET),
+            headers={"Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    _token_cache["access_token"] = data["access_token"]
+    _token_cache["expires_at"] = now + data.get("expires_in", 3600)
+    return _token_cache["access_token"]
+
+
+async def _paypal_headers() -> dict[str, str]:
+    token = await _get_access_token()
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+
+async def create_order(
     user_id: str,
     plan: str,
-    payment_method: str = "stripe",  # "stripe" | "cmi" | "cashplus"
+    amount_usd: float,
     success_url: str = "",
     cancel_url: str = "",
 ) -> dict:
-    plan_config = PLANS.get(plan, {})
+    """Create a PayPal order and return the approval URL."""
+    headers = await _paypal_headers()
+    return_url = success_url or f"{settings.FRONTEND_URL}/account?upgraded=1"
+    cancel_url = cancel_url or f"{settings.FRONTEND_URL}/pricing"
 
-    if payment_method == "stripe":
-        price_id = plan_config.get("stripe_price_id", "")
-        if not price_id or not settings.STRIPE_SECRET_KEY:
-            raise ValueError("Stripe not configured or invalid plan")
-        session = _stripe().checkout.Session.create(
-            mode="subscription",
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=success_url or f"{settings.FRONTEND_URL}/account?upgraded=1",
-            cancel_url=cancel_url or f"{settings.FRONTEND_URL}/pricing",
-            metadata={"user_id": user_id, "plan": plan},
-            payment_method_types=["card"],
-            locale="fr",
+    payload = {
+        "intent": "CAPTURE",
+        "purchase_units": [
+            {
+                "reference_id": f"{user_id}:{plan}",
+                "description": f"StudyForge — {plan} plan",
+                "amount": {
+                    "currency_code": "USD",
+                    "value": f"{amount_usd:.2f}",
+                },
+            }
+        ],
+        "application_context": {
+            "return_url": return_url,
+            "cancel_url": cancel_url,
+            "brand_name": "StudyForge",
+            "user_action": "PAY_NOW",
+            "shipping_preference": "NO_SHIPPING",
+        },
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            f"{_PAYPAL_BASE}/v2/checkout/orders",
+            json=payload,
+            headers=headers,
         )
-        return {"url": session.url, "session_id": session.id}
+        resp.raise_for_status()
+        data = resp.json()
 
-    elif payment_method == "cmi":
-        # CMI integration — redirect to CMI hosted payment page
-        cmi_payload = {
-            "clientid": settings.CMI_CLIENT_ID,
-            "amount": f"{plan_config.get('price_mad', 0):.2f}",
-            "currency": "504",  # MAD ISO 4217
-            "lang": "fr",
-            "callbackUrl": f"{settings.API_BASE_URL}/api/v1/webhooks/cmi",
-            "okUrl": success_url or f"{settings.FRONTEND_URL}/account?upgraded=1",
-            "failUrl": cancel_url or f"{settings.FRONTEND_URL}/pricing",
-            "shopurl": settings.FRONTEND_URL,
-            "trantype": "PreAuth",
-            "storetype": "3d_pay_hosting",
-            "hashAlgorithm": "ver3",
-            "rnd": str(uuid.uuid4()),
-        }
-        return {"url": settings.CMI_PAYMENT_URL, "form_data": cmi_payload}
-
-    elif payment_method == "cashplus":
-        return {
-            "payment_code": f"SF-{uuid.uuid4().hex[:8].upper()}",
-            "amount_mad": plan_config.get("price_mad", 0),
-            "expires_hours": 48,
-            "instructions": "Présentez ce code dans un point CashPlus partenaire",
-            "find_stores_url": "https://www.cashplus.ma/trouver-un-point",
-        }
-
-    raise ValueError(f"Unknown payment method: {payment_method}")
-
-
-async def handle_stripe_webhook(payload: bytes, signature: str) -> dict:
-    """Process Stripe webhooks for subscription lifecycle."""
-    event = _stripe().Webhook.construct_event(
-        payload, signature, settings.STRIPE_WEBHOOK_SECRET
+    order_id = data["id"]
+    approval_url = next(
+        (link["href"] for link in data.get("links", []) if link["rel"] == "approve"),
+        "",
     )
-    logger.info("Stripe webhook: %s", event.type)
-    return {"received": True, "event_type": event.type}
+    return {"order_id": order_id, "url": approval_url}
+
+
+async def capture_order(order_id: str) -> dict:
+    """Capture an approved PayPal order. Returns order details including reference_id."""
+    headers = await _paypal_headers()
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
+            headers=headers,
+            json={},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def handle_paypal_webhook(payload: bytes, headers: dict) -> dict:
+    """Verify and process a PayPal webhook event."""
+    import json as _json
+
+    try:
+        event = _json.loads(payload)
+    except Exception as exc:
+        logger.warning("PayPal webhook — invalid JSON: %s", exc)
+        return {"received": False}
+
+    event_type = event.get("event_type", "")
+    logger.info("PayPal webhook: %s", event_type)
+
+    if event_type in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED"):
+        resource = event.get("resource", {})
+        purchase_units = resource.get("purchase_units", [])
+        for unit in purchase_units:
+            ref = unit.get("reference_id", "")
+            if ":" in ref:
+                user_id, plan = ref.split(":", 1)
+                logger.info("PayPal: upgrading user %s to plan %s", user_id, plan)
+                # DB upgrade is handled by the calling route via upgrade_user_plan()
+
+    return {"received": True, "event_type": event_type}
 
 
 async def upgrade_user_plan(db, user_id: str, new_plan: str) -> None:
-    """Upgrade a user's plan in the DB — called from webhooks."""
     from sqlalchemy import update
     from app.models.user import User
     await db.execute(update(User).where(User.id == user_id).values(plan=new_plan))

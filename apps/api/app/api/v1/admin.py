@@ -26,8 +26,6 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 SuperAdmin = require_role("super_admin")
 DB = Annotated[AsyncSession, Depends(get_db)]
 
-# ─── In-memory health cache (15s TTL) ────────────────────────────────────────
-
 _health_cache: dict = {"data": None, "ts": 0.0}
 _HEALTH_TTL = 15.0
 
@@ -65,19 +63,14 @@ async def _check_chroma() -> dict:
         return {"status": "error", "detail": str(exc)}
 
 
-async def _check_s3() -> dict:
+async def _check_gcs() -> dict:
     try:
-        import boto3
-        from botocore.config import Config
-
-        s3 = boto3.client(
-            "s3",
-            region_name=settings.S3_REGION,
-            config=Config(connect_timeout=3, read_timeout=3),
-        )
+        from google.cloud import storage as gcs
+        client = gcs.Client(project=settings.GCP_PROJECT_ID)
+        bucket = client.bucket(settings.GCS_BUCKET)
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: s3.head_bucket(Bucket=settings.S3_BUCKET))
-        return {"status": "ok"}
+        exists = await loop.run_in_executor(None, bucket.exists)
+        return {"status": "ok" if exists else "degraded", "bucket": settings.GCS_BUCKET}
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
@@ -100,11 +93,11 @@ async def health_overview(_: Annotated[User, SuperAdmin]):
     if _health_cache["data"] and (now - _health_cache["ts"]) < _HEALTH_TTL:
         return _health_cache["data"]
 
-    db_status, redis_status, chroma_status, s3_status = await asyncio.gather(
+    db_status, redis_status, chroma_status, gcs_status = await asyncio.gather(
         _check_db(),
         _check_redis(),
         _check_chroma(),
-        _check_s3(),
+        _check_gcs(),
         return_exceptions=False,
     )
 
@@ -120,7 +113,7 @@ async def health_overview(_: Annotated[User, SuperAdmin]):
             "database": db_status,
             "redis": redis_status,
             "vector_db": chroma_status,
-            "storage": s3_status,
+            "storage": gcs_status,
             "ai_provider": {"status": "ok", "provider": settings.AI_PROVIDER},
         },
         "queues": {
@@ -210,140 +203,13 @@ async def mark_file_error(
     return {"ok": True, "file_id": file_id}
 
 
-# ─── DLQ endpoints ────────────────────────────────────────────────────────────
-
-def _get_sqs_client():
-    import boto3
-    return boto3.client("sqs", region_name=settings.AWS_REGION)
-
-
-def _dlq_url_for(queue_name: str) -> str:
-    urls = {
-        "files": settings.TASK_SQS_FILE_QUEUE_URL,
-        "slides": settings.TASK_SQS_SLIDE_QUEUE_URL,
-        "notifications": settings.TASK_SQS_NOTIFICATION_QUEUE_URL,
-    }
-    return urls.get(queue_name, "")
-
-
-@router.get("/health/dlq")
-async def get_dlq_messages(
-    _: Annotated[User, SuperAdmin],
-    queue: str = Query("files", regex="^(files|slides|notifications)$"),
-    max_messages: int = Query(10, ge=1, le=20),
-):
-    dlq_url = _dlq_url_for(queue)
-    if not dlq_url:
-        return {"messages": [], "queue": queue, "note": "DLQ URL not configured"}
-
-    try:
-        loop = asyncio.get_event_loop()
-        sqs = _get_sqs_client()
-        dlq_base = dlq_url.rstrip("/")
-        dlq_actual = dlq_base + "-dlq" if not dlq_base.endswith("-dlq") else dlq_base
-
-        response = await loop.run_in_executor(
-            None,
-            lambda: sqs.receive_message(
-                QueueUrl=dlq_actual,
-                MaxNumberOfMessages=max_messages,
-                AttributeNames=["All"],
-                MessageAttributeNames=["All"],
-                VisibilityTimeout=30,
-                WaitTimeSeconds=1,
-            ),
-        )
-        messages = response.get("Messages", [])
-        return {
-            "queue": queue,
-            "messages": [
-                {
-                    "message_id": m["MessageId"],
-                    "receipt_handle": m["ReceiptHandle"],
-                    "body": m.get("Body", ""),
-                    "sent_at": m.get("Attributes", {}).get("SentTimestamp"),
-                    "receive_count": m.get("Attributes", {}).get("ApproximateReceiveCount"),
-                }
-                for m in messages
-            ],
-        }
-    except Exception as exc:
-        logger.warning(f"DLQ fetch error: {exc}")
-        return {"messages": [], "queue": queue, "error": str(exc)}
-
-
-class DlqRetryRequest(BaseModel):
-    receipt_handle: str
-    queue: str = "files"
-
-
-@router.post("/health/dlq/{message_id}/retry")
-async def retry_dlq_message(
-    message_id: str,
-    body: DlqRetryRequest,
-    _: Annotated[User, SuperAdmin],
-):
-    source_url = _dlq_url_for(body.queue)
-    if not source_url:
-        raise HTTPException(status_code=400, detail="DLQ URL not configured for this queue")
-
-    try:
-        loop = asyncio.get_event_loop()
-        sqs = _get_sqs_client()
-        dlq_actual = source_url.rstrip("/")
-        if not dlq_actual.endswith("-dlq"):
-            dlq_actual += "-dlq"
-
-        await loop.run_in_executor(
-            None,
-            lambda: sqs.change_message_visibility(
-                QueueUrl=dlq_actual,
-                ReceiptHandle=body.receipt_handle,
-                VisibilityTimeout=0,
-            ),
-        )
-        return {"ok": True, "message_id": message_id}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.delete("/health/dlq/{message_id}")
-async def delete_dlq_message(
-    message_id: str,
-    _: Annotated[User, SuperAdmin],
-    receipt_handle: str = Query(...),
-    queue: str = Query("files"),
-):
-    source_url = _dlq_url_for(queue)
-    if not source_url:
-        raise HTTPException(status_code=400, detail="DLQ URL not configured for this queue")
-
-    try:
-        loop = asyncio.get_event_loop()
-        sqs = _get_sqs_client()
-        dlq_actual = source_url.rstrip("/")
-        if not dlq_actual.endswith("-dlq"):
-            dlq_actual += "-dlq"
-
-        await loop.run_in_executor(
-            None,
-            lambda: sqs.delete_message(
-                QueueUrl=dlq_actual,
-                ReceiptHandle=receipt_handle,
-            ),
-        )
-        return {"ok": True, "message_id": message_id}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 # ─── AI cost tracking ─────────────────────────────────────────────────────────
 
 @router.get("/health/ai-costs")
 async def get_ai_costs(_: Annotated[User, SuperAdmin]):
     return {
         "tracking_enabled": False,
-        "note": "AI cost tracking is not yet implemented. Enable it by instrumenting LLM calls with token counters.",
+        "note": "AI cost tracking not yet implemented.",
         "total_cost_usd": None,
         "top_consumers": [],
         "daily_chart": [],
@@ -549,7 +415,7 @@ async def update_feature_flag(
     }
 
 
-# ─── Schools (existing) ───────────────────────────────────────────────────────
+# ─── Schools ──────────────────────────────────────────────────────────────────
 
 @router.get("/schools")
 async def list_schools(

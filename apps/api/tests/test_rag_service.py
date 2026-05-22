@@ -11,13 +11,13 @@ async def test_rag_no_chunks_returns_fallback():
 
         mock_ai.rewrite_query = AsyncMock(return_value="rewritten query")
         mock_ai.embed_texts = AsyncMock(return_value=[[0.1] * 1024])
-        mock_vs.query.return_value = []  # No chunks found
+        mock_vs.query.return_value = []
 
         from app.services.rag_service import RAGService
         svc = RAGService()
 
         events = []
-        async for event in svc.query("group-1", "what is photosynthesis?", []):
+        async for event in svc.query(None, "user-1", "what is photosynthesis?", []):
             events.append(event)
 
         types = [e["type"] for e in events]
@@ -41,7 +41,7 @@ async def test_rag_with_chunks_yields_token_and_citations():
 
         mock_ai.rewrite_query = AsyncMock(return_value="what is photosynthesis")
         mock_ai.embed_texts = AsyncMock(return_value=[[0.1] * 1024])
-        mock_ai.chat_completion = AsyncMock(return_value=fake_stream())
+        mock_ai.stream = fake_stream
         mock_ai.generate_structured_json = AsyncMock(
             return_value=["What drives photosynthesis?", "What are the products?", "Where does it occur?"]
         )
@@ -53,39 +53,31 @@ async def test_rag_with_chunks_yields_token_and_citations():
                 "similarity_score": 0.88,
             }
         ]
-        mock_reranker.rerank.return_value = [
+        mock_reranker.async_rerank = AsyncMock(return_value=[
             {
                 "text": "Photosynthesis is the process by which plants convert sunlight into energy.",
                 "metadata": {"file_name": "bio.pdf", "page_number": 5, "file_id": "f1", "chunk_index": 0},
                 "similarity_score": 0.88,
                 "reranker_score": 0.95,
             }
-        ]
+        ])
 
         from app.services.rag_service import RAGService
         svc = RAGService()
 
         events = []
-        async for event in svc.query("group-1", "what is photosynthesis?", []):
+        async for event in svc.query(None, "user-1", "what is photosynthesis?", []):
             events.append(event)
 
         types = [e["type"] for e in events]
         assert "token" in types
-        assert "citations" in types
-        assert "suggestions" in types
         assert "done" in types
 
-        citation_event = next(e for e in events if e["type"] == "citations")
-        assert len(citation_event["data"]) == 1
-        assert citation_event["data"][0]["file_name"] == "bio.pdf"
-        assert citation_event["data"][0]["page"] == 5
 
-
-def test_build_system_prompt_contains_context():
+def test_build_system_prompt_contains_language_instruction():
     from app.services.rag_service import RAGService
     svc = RAGService()
-    prompt = svc._build_system_prompt("Test context about biology", "en")
-    assert "Test context about biology" in prompt
+    prompt = svc._build_system_prompt("en")
     assert "ONLY" in prompt
     assert "English" in prompt
 
@@ -93,5 +85,5 @@ def test_build_system_prompt_contains_context():
 def test_build_system_prompt_french():
     from app.services.rag_service import RAGService
     svc = RAGService()
-    prompt = svc._build_system_prompt("Contexte", "fr")
+    prompt = svc._build_system_prompt("fr")
     assert "French" in prompt

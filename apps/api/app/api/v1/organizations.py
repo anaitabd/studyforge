@@ -799,7 +799,7 @@ async def get_org_billing(slug: str, current_user: CurrentUser, db: DB):
         ).order_by(Subscription.created_at.desc()).limit(1)
     )).scalar_one_or_none()
 
-    # Fallback: look up by the org's stripe_customer_id
+    # Fallback: look up by the org's customer_id
     if sub is None and org.stripe_customer_id:
         sub = (await db.execute(
             select(Subscription).where(
@@ -813,7 +813,7 @@ async def get_org_billing(slug: str, current_user: CurrentUser, db: DB):
             "status": sub.status,
             "current_period_end": sub.period_end.isoformat() if sub.period_end else None,
             "cancel_at_period_end": sub.cancel_at_period_end,
-            "stripe_customer_id": sub.stripe_customer_id or org.stripe_customer_id,
+            "customer_id": sub.stripe_customer_id or org.stripe_customer_id,
         }
 
     return {
@@ -821,7 +821,7 @@ async def get_org_billing(slug: str, current_user: CurrentUser, db: DB):
         "status": "active",
         "current_period_end": None,
         "cancel_at_period_end": False,
-        "stripe_customer_id": org.stripe_customer_id,
+        "customer_id": org.stripe_customer_id,
     }
 
 

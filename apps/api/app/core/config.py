@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any
 
-from pydantic import AnyHttpUrl, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,13 +16,9 @@ class Settings(BaseSettings):
     APP_ENV: AppEnv = AppEnv.local
     DATABASE_URL: str = "postgresql+asyncpg://studyforge:studyforge@localhost:5432/studyforge"
     REDIS_URL: str = "redis://localhost:6379/0"
-    # OpenAI-compatible provider (default — works with AWS Bedrock, Azure, or any OpenAI-compat endpoint)
-    OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = ""          # leave empty to use api.openai.com
-    OPENAI_CHAT_MODEL: str = "openai.gpt-oss-120b"
-    OPENAI_EMBED_MODEL: str = "amazon.titan-embed-text-v2:0"
 
-    AI_PROVIDER: str = "gemini"        # openai | nvidia | bedrock | ollama | gemini | claude_vertex
+    # AI provider: gemini (default) | claude_vertex
+    AI_PROVIDER: str = "gemini"
 
     # GCP / Vertex AI — used by GeminiVertexProvider and ClaudeVertexProvider
     GCP_PROJECT_ID: str = "studyforge-495618"
@@ -30,72 +26,36 @@ class Settings(BaseSettings):
     GEMINI_CHAT_MODEL: str = "gemini-2.5-flash"
     GEMINI_EMBED_MODEL: str = "text-multilingual-embedding-002"
 
-    # Legacy Google Cloud settings (keep for storage_service.py backward compat)
-    GOOGLE_PROJECT_ID: str = ""
-    GOOGLE_LOCATION: str = "europe-west9"
-
-    # Google Cloud Storage (primary storage on GCP)
+    # Google Cloud Storage
     GCS_BUCKET: str = "studyforge-495618-files"
     GCS_EMULATOR_HOST: str = ""  # e.g. http://localhost:4443 for fake-gcs-server
 
-    # Ollama local settings (used when AI_PROVIDER=ollama)
-    OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_CHAT_MODEL: str = "llama3.2:3b"
-    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
-
-    # NVIDIA NIM — embeddings + reranking
-    NVIDIA_API_KEY: str = ""
-    NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_CHAT_MODEL: str = "meta/llama-3.3-70b-instruct"
-    NVIDIA_EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
-    NVIDIA_RERANK_MODEL: str = "nvidia/nv-rerankqa-mistral-4b-v3"
-
-    # Legacy Bedrock settings (kept for backward compat)
-    AWS_REGION: str = "us-east-1"
-    BEDROCK_CHAT_MODEL_ID: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    BEDROCK_EMBED_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
+    # ChromaDB vector store
     CHROMA_HOST: str = "chroma_server"
     CHROMA_PORT: int = 8000
-    # S3/MinIO — kept as empty-string stubs for backward compat (local docker-compose only)
-    S3_BUCKET: str = ""
-    S3_REGION: str = ""
-    S3_ENDPOINT_URL: str = ""
 
-    # Temporary backward-compatibility for legacy R2/MinIO env names
-    R2_BUCKET: str = ""
-    R2_ENDPOINT: str = ""
-    R2_ACCESS_KEY: str = ""
-    R2_SECRET_KEY: str = ""
+    # Auth (Clerk)
     CLERK_SECRET_KEY: str = ""
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: str = ""
     CLERK_WEBHOOK_SECRET: str = ""
-    SENDGRID_API_KEY: str = ""
+
+    # Notifications (Twilio WhatsApp)
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_WHATSAPP_FROM: str = "whatsapp:+14155238886"
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PERSONAL_MONTHLY_PRICE_ID: str = ""
-    STRIPE_PERSONAL_ANNUAL_PRICE_ID: str = ""
-    STRIPE_ETUDIANT_PRICE_ID: str = ""
-    STRIPE_PREMIUM_PRICE_ID: str = ""
-    STRIPE_ECOLE_PRICE_ID: str = ""
-    # Moroccan CMI payment gateway
-    CMI_CLIENT_ID: str = ""
-    CMI_PAYMENT_URL: str = "https://payment.cmi.co.ma/fim/est3Dgate"
-    CMI_STORE_KEY: str = ""
+
+    # Payments (PayPal)
+    PAYPAL_CLIENT_ID: str = ""
+    PAYPAL_SECRET: str = ""
+
+    # Task queue
+    TASK_EXECUTION_MODE: str = "celery"
+
+    # URLs
     API_BASE_URL: str = "http://localhost:8000"
     SECRET_KEY: str = "change-me-in-production"
     FRONTEND_URL: str = "http://localhost:3000"
     FRONTEND_URLS: Any = Field(default_factory=list)
-    SUPABASE_URL: str = ""
-    SUPABASE_ANON_KEY: str = ""
-    SUPABASE_SERVICE_KEY: str = ""
-    TASK_EXECUTION_MODE: str = "celery"  # celery | hybrid | lambda
-    TASK_SQS_FILE_QUEUE_URL: str = ""
-    TASK_SQS_SLIDE_QUEUE_URL: str = ""
-    TASK_SQS_NOTIFICATION_QUEUE_URL: str = ""
-    TASK_EVENTBRIDGE_EXAM_DEADLINE_RULE: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

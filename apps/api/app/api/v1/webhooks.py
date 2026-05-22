@@ -1,6 +1,3 @@
-import base64
-import hashlib
-import hmac
 import logging
 from typing import Annotated
 
@@ -16,84 +13,51 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 DB = Annotated[AsyncSession, Depends(get_db)]
 
 
-@router.post("/stripe")
-async def stripe_webhook(request: Request, db: DB):
+@router.post("/paypal")
+async def paypal_webhook(request: Request, db: DB):
+    """PayPal webhook — handles order and payment capture events."""
     payload = await request.body()
-    signature = request.headers.get("stripe-signature", "")
+    headers = dict(request.headers)
 
-    if not settings.STRIPE_WEBHOOK_SECRET:
-        raise HTTPException(status_code=500, detail="Stripe webhook secret not configured")
-
-    from app.services.payment_service import handle_stripe_webhook, upgrade_user_plan
+    from app.services.payment_service import handle_paypal_webhook, upgrade_user_plan
     try:
-        await handle_stripe_webhook(payload, signature)
+        result = await handle_paypal_webhook(payload, headers)
     except Exception as exc:
-        logger.warning("Stripe webhook verification failed: %s", exc)
-        raise HTTPException(status_code=400, detail="Invalid signature")
+        logger.warning("PayPal webhook processing error: %s", exc)
+        raise HTTPException(status_code=400, detail="Webhook processing failed")
 
-    # Re-parse to extract metadata for plan upgrades
-    try:
-        import stripe as stripe_lib
-        stripe_lib.api_key = settings.STRIPE_SECRET_KEY
-        full = stripe_lib.Webhook.construct_event(
-            payload, signature, settings.STRIPE_WEBHOOK_SECRET
-        )
-        event_type = full.type
-        if event_type in (
-            "checkout.session.completed",
-            "customer.subscription.created",
-            "customer.subscription.updated",
-        ):
-            obj = full.data.object
-            metadata = getattr(obj, "metadata", {}) or {}
-            user_id = metadata.get("user_id")
-            plan = metadata.get("plan")
-            if user_id and plan:
-                await upgrade_user_plan(db, user_id, plan)
-                logger.info("Stripe upgraded user %s to %s", user_id, plan)
-    except Exception as exc:
-        logger.warning("Could not process Stripe event payload: %s", exc)
+    event_type = result.get("event_type", "")
+    if event_type in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED"):
+        import json as _json
+        try:
+            event = _json.loads(payload)
+            resource = event.get("resource", {})
+            purchase_units = resource.get("purchase_units", [])
+            for unit in purchase_units:
+                ref = unit.get("reference_id", "")
+                if ":" in ref:
+                    user_id, plan = ref.split(":", 1)
+                    await upgrade_user_plan(db, user_id, plan)
+                    logger.info("PayPal upgraded user %s to %s", user_id, plan)
+        except Exception as exc:
+            logger.warning("Could not process PayPal event payload: %s", exc)
 
     return {"received": True}
 
 
-@router.post("/cmi")
-async def cmi_webhook(request: Request, db: DB):
-    """CMI payment gateway callback — form-encoded POST."""
-    form = await request.form()
-    response_code = form.get("ProcReturnCode", "")
-    oid = form.get("oid", "")
-    store_key = settings.CMI_STORE_KEY
+@router.post("/clerk")
+async def clerk_webhook(request: Request, db: DB):
+    """Clerk user lifecycle webhooks (user.created, user.deleted, etc.)."""
+    from app.core.security import handle_clerk_webhook
+    payload = await request.body()
+    svix_id = request.headers.get("svix-id", "")
+    svix_ts = request.headers.get("svix-timestamp", "")
+    svix_sig = request.headers.get("svix-signature", "")
 
-    if store_key:
-        hash_params = form.get("HASH", "")
-        hash_input = "|".join([
-            form.get("clientid", ""),
-            oid,
-            form.get("amount", ""),
-            form.get("okUrl", ""),
-            form.get("failUrl", ""),
-            form.get("trantype", ""),
-            form.get("instalment", ""),
-            form.get("rnd", ""),
-            store_key,
-        ])
-        raw_hex = hmac.new(
-            store_key.encode(), hash_input.encode(), hashlib.sha512
-        ).hexdigest()
-        computed_b64 = base64.b64encode(bytes.fromhex(raw_hex)).decode()
-        if not hmac.compare_digest(computed_b64, hash_params):
-            logger.warning("CMI webhook HASH mismatch for oid=%s", oid)
-            return "ACTION=FAILURE"
+    try:
+        await handle_clerk_webhook(db, payload, svix_id, svix_ts, svix_sig)
+    except Exception as exc:
+        logger.warning("Clerk webhook error: %s", exc)
+        raise HTTPException(status_code=400, detail="Webhook error")
 
-    if response_code == "00":
-        user_id = form.get("userId", "")
-        plan = form.get("plan", "")
-        if user_id and plan:
-            from app.services.payment_service import upgrade_user_plan
-            await upgrade_user_plan(db, user_id, plan)
-            logger.info("CMI payment success: upgraded user %s to %s", user_id, plan)
-        return "ACTION=POSTAUTH"
-
-    logger.info("CMI payment declined for oid=%s code=%s", oid, response_code)
-    return "ACTION=FAILURE"
+    return {"received": True}

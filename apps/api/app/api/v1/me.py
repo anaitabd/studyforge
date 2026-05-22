@@ -212,31 +212,8 @@ async def update_notifications(body: UpdateNotificationsRequest, current_user: C
 async def billing_portal(current_user: CurrentUser, db: DB):
     if current_user.plan == "school":
         raise HTTPException(status_code=403, detail="Billing is managed by your school")
-
-    customer_id = current_user.stripe_customer_id
-    if not customer_id:
-        sub_row = (await db.execute(
-            select(Subscription)
-            .where(Subscription.user_id == current_user.id)
-            .order_by(Subscription.created_at.desc())
-        )).scalar_one_or_none()
-        if sub_row:
-            customer_id = sub_row.stripe_customer_id
-
-    if not customer_id or not settings.STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=400, detail="No billing account found. Please upgrade first.")
-
-    try:
-        import stripe  # type: ignore[import]
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        session = stripe.billing_portal.Session.create(
-            customer=customer_id,
-            return_url=f"{settings.FRONTEND_URL}/account",
-        )
-        return {"url": session.url}
-    except Exception:
-        logger.exception("Stripe billing portal error for user %s", current_user.id)
-        raise HTTPException(status_code=500, detail="Failed to create billing portal session")
+    # Redirect to PayPal account management
+    return {"url": "https://www.paypal.com/myaccount/autopay/"}
 
 
 class DeleteAccountRequest(BaseModel):
@@ -644,25 +621,30 @@ async def get_weak_areas(current_user: CurrentUser, db: DB):
 
 class SubscribeRequest(BaseModel):
     plan: str
-    payment_method: str = "stripe"  # stripe | cmi | cashplus
     success_url: str = ""
     cancel_url: str = ""
 
 
 @router.post("/subscribe")
 async def subscribe(body: SubscribeRequest, current_user: CurrentUser):
-    from app.services.payment_service import create_checkout_session
+    from app.core.plans import get_plan
+    from app.services.payment_service import create_order
+    plan_config = get_plan(body.plan)
+    amount_usd = plan_config.get("price_usd", 0)
+    if amount_usd == 0:
+        raise HTTPException(status_code=400, detail="Free plan does not require payment")
     try:
-        result = await create_checkout_session(
+        result = await create_order(
             user_id=str(current_user.id),
             plan=body.plan,
-            payment_method=body.payment_method,
+            amount_usd=amount_usd,
             success_url=body.success_url,
             cancel_url=body.cancel_url,
         )
         return result
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("PayPal create_order error for user %s", current_user.id)
+        raise HTTPException(status_code=500, detail="Payment service error")
 
 
 @router.get("/subscription")
