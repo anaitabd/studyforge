@@ -10,7 +10,7 @@ interface BillingInfo {
   status: string;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
-  stripe_customer_id: string | null;
+  customer_id: string | null;
 }
 
 function useBilling(slug: string) {
@@ -62,8 +62,8 @@ export default function OrgBillingPage() {
                 <div>
                   <p className="text-sm font-semibold text-primary">Current plan</p>
                   <p className="text-xs text-slate-400">
-                    {billing.stripe_customer_id
-                      ? `Stripe customer: ${billing.stripe_customer_id}`
+                    {billing.customer_id
+                      ? `PayPal customer: ${billing.customer_id}`
                       : "No payment method on file"}
                   </p>
                 </div>

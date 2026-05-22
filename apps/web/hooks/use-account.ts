@@ -16,7 +16,7 @@ export interface AccountSubscription {
   status: "active" | "trialing" | "past_due" | "canceled" | "none";
   plan: "free" | "personal" | "school";
   current_period_end: string | null;
-  stripe_customer_id: string | null;
+  customer_id: string | null;
   cancel_at_period_end: boolean;
 }
 

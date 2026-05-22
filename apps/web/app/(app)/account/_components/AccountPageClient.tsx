@@ -16,7 +16,6 @@ import {
   useAccount,
   useUpdateAccount,
   useUpdateNotifications,
-  useBillingPortal,
   useDeleteAccount,
   type AccountData,
   type AccountNotifications,
@@ -281,8 +280,6 @@ function SubscriptionTab({
   account?: AccountData;
   isLoading: boolean;
 }) {
-  const { mutate: openPortal, isPending: portalPending } = useBillingPortal();
-
   if (isLoading) {
     return (
       <div className="space-y-4 max-w-xl">
@@ -296,12 +293,6 @@ function SubscriptionTab({
   const schoolName = account?.school_name;
 
   if (!sub) return null;
-
-  const handlePortal = () =>
-    openPortal(undefined, {
-      onError: (err: unknown) =>
-        toast.error((err as Error).message ?? "Failed to open billing portal"),
-    });
 
   return (
     <div className="space-y-4 max-w-xl">
@@ -373,14 +364,15 @@ function SubscriptionTab({
                 Your plan is set to cancel at the end of the billing period.
               </div>
             )}
-            <button
-              onClick={handlePortal}
-              disabled={portalPending}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+            <a
+              href="https://www.paypal.com/myaccount/autopay/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50"
             >
               <ExternalLink size={14} />
-              {portalPending ? "Opening…" : "Manage billing"}
-            </button>
+              Manage PayPal subscription
+            </a>
           </div>
         )}
 
@@ -390,7 +382,7 @@ function SubscriptionTab({
               Your plan ended on {new Date(sub.current_period_end).toLocaleDateString()}.
             </p>
             <a
-              href="/upgrade"
+              href="/pricing"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90"
             >
               Re-subscribe
@@ -399,14 +391,15 @@ function SubscriptionTab({
         )}
 
         {sub.status === "past_due" && (
-          <button
-            onClick={handlePortal}
-            disabled={portalPending}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-white text-sm font-medium hover:bg-destructive/90 disabled:opacity-50"
+          <a
+            href="https://www.paypal.com/myaccount/autopay/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-white text-sm font-medium hover:bg-destructive/90"
           >
             <ExternalLink size={14} />
-            {portalPending ? "Opening…" : "Update payment method"}
-          </button>
+            Update payment on PayPal
+          </a>
         )}
       </div>
     </div>

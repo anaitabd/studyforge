@@ -11,8 +11,7 @@ const PLANS = [
     key: "free",
     name: "Gratuit",
     nameAr: "مجاني",
-    priceMad: 0,
-    priceEur: 0,
+    priceUsd: 0,
     period: "",
     features: [
       "2 groupes",
@@ -28,8 +27,7 @@ const PLANS = [
     key: "etudiant",
     name: "Étudiant",
     nameAr: "طالب",
-    priceMad: 49,
-    priceEur: 4.99,
+    priceUsd: 4.99,
     period: "/ mois",
     features: [
       "10 groupes",
@@ -48,8 +46,7 @@ const PLANS = [
     key: "premium",
     name: "Premium",
     nameAr: "متميز",
-    priceMad: 99,
-    priceEur: 9.99,
+    priceUsd: 9.99,
     period: "/ mois",
     features: [
       "50 groupes",
@@ -67,8 +64,7 @@ const PLANS = [
     key: "ecole",
     name: "École",
     nameAr: "مدرسة",
-    priceMad: 29,
-    priceEur: null,
+    priceUsd: null,
     period: "/ siège / mois (min. 10)",
     features: [
       "Groupes & fichiers illimités",
@@ -82,13 +78,10 @@ const PLANS = [
   },
 ];
 
-type PaymentMethod = "stripe" | "cmi" | "cashplus";
-
 export default function PricingPage() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe");
 
   async function handleSelect(planKey: string) {
     if (planKey === "free") {
@@ -106,35 +99,15 @@ export default function PricingPage() {
 
     setLoadingPlan(planKey);
     try {
-      const res = await api.post<{ url?: string; form_data?: Record<string, string | undefined>; payment_code?: string }>(
+      const res = await api.post<{ order_id?: string; url?: string }>(
         "/me/subscribe",
-        { plan: planKey, payment_method: paymentMethod }
+        { plan: planKey }
       );
-      const data = res.data;
-
-      if (paymentMethod === "cashplus" && data.payment_code) {
-        toast.success(`Code de paiement : ${data.payment_code}`, { duration: 10000 });
-        return;
-      }
-
-      if (paymentMethod === "cmi" && data.form_data && data.url) {
-        const form = document.createElement("form");
-        form.method = "POST";
-        form.action = data.url;
-        Object.entries(data.form_data).forEach(([k, v]) => {
-          const input = document.createElement("input");
-          input.type = "hidden";
-          input.name = k;
-          input.value = v ?? "";
-          form.appendChild(input);
-        });
-        document.body.appendChild(form);
-        form.submit();
-        return;
-      }
-
-      if (data.url) {
-        window.location.href = data.url;
+      const { url } = res.data;
+      if (url) {
+        window.location.href = url;
+      } else {
+        toast.error("No PayPal approval URL returned.");
       }
     } catch {
       toast.error("Erreur lors de la création de la session de paiement.");
@@ -153,23 +126,6 @@ export default function PricingPage() {
           <p className="text-lg text-gray-500 dark:text-gray-400">
             Tous les plans incluent le chat RAG et les flashcards. Passez à niveau à tout moment.
           </p>
-        </div>
-
-        {/* Payment method selector */}
-        <div className="flex justify-center gap-3 mb-10">
-          {(["stripe", "cmi", "cashplus"] as PaymentMethod[]).map((method) => (
-            <button
-              key={method}
-              onClick={() => setPaymentMethod(method)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium border transition-colors ${
-                paymentMethod === method
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-indigo-400"
-              }`}
-            >
-              {method === "stripe" ? "Carte internationale" : method === "cmi" ? "Carte marocaine (CMI)" : "CashPlus"}
-            </button>
-          ))}
         </div>
 
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
@@ -193,17 +149,17 @@ export default function PricingPage() {
               </div>
 
               <div className="mb-6">
-                {plan.priceMad === 0 ? (
+                {plan.priceUsd === 0 ? (
                   <span className="text-3xl font-bold text-gray-900 dark:text-white">Gratuit</span>
-                ) : (
+                ) : plan.priceUsd !== null ? (
                   <>
                     <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {paymentMethod === "stripe" && plan.priceEur
-                        ? `€${plan.priceEur}`
-                        : `${plan.priceMad} MAD`}
+                      ${plan.priceUsd}
                     </span>
                     <span className="text-sm text-gray-400 ml-1">{plan.period}</span>
                   </>
+                ) : (
+                  <span className="text-3xl font-bold text-gray-900 dark:text-white">Sur devis</span>
                 )}
               </div>
 
@@ -234,7 +190,7 @@ export default function PricingPage() {
         </div>
 
         <p className="mt-10 text-center text-xs text-gray-400">
-          Paiements sécurisés via Stripe, CMI ou CashPlus. Annulez à tout moment.
+          Paiements sécurisés via PayPal. Annulez à tout moment depuis votre compte PayPal.
         </p>
       </div>
     </div>

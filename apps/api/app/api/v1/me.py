@@ -83,7 +83,7 @@ async def _build_account(user: User, db: AsyncSession) -> dict:
             "status": sub_row.status,
             "plan": sub_row.plan,
             "current_period_end": sub_row.period_end.isoformat() if sub_row.period_end else None,
-            "stripe_customer_id": sub_row.stripe_customer_id,
+            "customer_id": sub_row.stripe_customer_id,
             "cancel_at_period_end": sub_row.cancel_at_period_end,
         }
     else:
@@ -91,7 +91,7 @@ async def _build_account(user: User, db: AsyncSession) -> dict:
             "status": "none",
             "plan": user.plan,
             "current_period_end": None,
-            "stripe_customer_id": None,
+            "customer_id": None,
             "cancel_at_period_end": False,
         }
 
