@@ -102,6 +102,17 @@ steps:
       - apps/web
     waitFor: ["-"]
 
+  # ── Configure Docker auth for Artifact Registry ──────────────────────────
+
+  - id: configure-docker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    args:
+      - gcloud
+      - auth
+      - configure-docker
+      - ${_REGION}-docker.pkg.dev
+    waitFor: ["-"]
+
   # ── Push images ────────────────────────────────────────────────────────────
 
   - id: push-api
@@ -110,7 +121,7 @@ steps:
       - push
       - --all-tags
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/api
-    waitFor: [build-api]
+    waitFor: [build-api, configure-docker]
 
   - id: push-web
     name: gcr.io/cloud-builders/docker
@@ -118,7 +129,7 @@ steps:
       - push
       - --all-tags
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/$_AR_REPO/web
-    waitFor: [build-web]
+    waitFor: [build-web, configure-docker]
 
   # ── Run Alembic migrations (Cloud Run Job) ────────────────────────────────
   # Creates job on first run, updates on subsequent runs, then executes.
