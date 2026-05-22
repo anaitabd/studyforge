@@ -1,4 +1,4 @@
-"""your description
+"""drop user_events table, tighten nullable constraints, add org fk index
 
 Revision ID: c4875d29c5a5
 Revises: c3d4e5f6a7b8

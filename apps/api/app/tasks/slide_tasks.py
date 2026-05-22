@@ -1,10 +1,10 @@
 import asyncio
 import logging
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
-from app.jobs.slide_jobs import generate_slides, mark_slide_error
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -16,12 +16,38 @@ def _make_task_session_factory():
     return engine, factory
 
 
+async def _generate_slides(deck_id: str, session_factory):
+    from app.models.slide_deck import SlideDeck
+    from app.services.slide_service import slide_service
+
+    async with session_factory() as db:
+        await db.execute(
+            update(SlideDeck).where(SlideDeck.id == deck_id).values(status="generating", error_message=None)
+        )
+        await db.commit()
+
+    async with session_factory() as db:
+        await slide_service.generate_full_deck(db, deck_id)
+
+
+async def _mark_slide_error(deck_id: str, msg: str, session_factory):
+    from app.models.slide_deck import SlideDeck
+
+    async with session_factory() as db:
+        await db.execute(
+            update(SlideDeck).where(SlideDeck.id == deck_id).values(
+                status="error", error_message=msg[:4000] if msg else "Slide generation failed"
+            )
+        )
+        await db.commit()
+
+
 @celery_app.task(name="app.tasks.slide_tasks.generate_slides", bind=True, max_retries=3)
 def generate_slides_task(self, deck_id: str):
     async def _run():
         engine, factory = _make_task_session_factory()
         try:
-            await generate_slides(deck_id, factory)
+            await _generate_slides(deck_id, factory)
             logger.info(f"Slide deck {deck_id} generated successfully")
         finally:
             await engine.dispose()
@@ -29,7 +55,7 @@ def generate_slides_task(self, deck_id: str):
     async def _err(msg: str):
         engine, factory = _make_task_session_factory()
         try:
-            await mark_slide_error(deck_id, msg, factory)
+            await _mark_slide_error(deck_id, msg, factory)
         finally:
             await engine.dispose()
 
