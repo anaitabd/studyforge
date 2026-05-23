@@ -52,7 +52,7 @@
 substitutions:
   _REGION: europe-west9
   _AR_REPO: studyforge
-  _API_URL: https://studyforge-api-placeholder.a.run.app
+  _API_URL: https://studyforge-api-yknyyjfuoa-od.a.run.app
   _CLERK_KEY: pk_test_aG9seS1kb2xwaGluLTc2LmNsZXJrLmFjY291bnRzLmRldiQ
   _CHROMA_HOST: chroma_server
   _CHROMA_PORT: "8000"
