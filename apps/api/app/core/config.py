@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     PAYPAL_CLIENT_ID: str = ""
     PAYPAL_SECRET: str = ""
 
+    # Monitoring
+    SENTRY_DSN: str = ""
+
     # Task queue
     TASK_EXECUTION_MODE: str = "celery"
 

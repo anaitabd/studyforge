@@ -2,8 +2,9 @@ import asyncio
 import logging
 import random
 import uuid
+from datetime import datetime
 
-from sqlalchemy import select, delete, func
+from sqlalchemy import and_, or_, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.file import File
@@ -304,16 +305,41 @@ async def generate_path(
     }
 
 
-async def list_paths(db: AsyncSession, group_id: str, user_id: str) -> list[dict]:
+async def list_paths(
+    db: AsyncSession,
+    group_id: str,
+    user_id: str,
+    limit: int = 20,
+    cursor_dt: datetime | None = None,
+    cursor_id: str | None = None,
+) -> dict:
+    from app.core.pagination import encode_cursor
+
+    base_filter = [LearningPath.group_id == group_id]
+    page_filter = list(base_filter)
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                LearningPath.created_at < cursor_dt,
+                and_(LearningPath.created_at == cursor_dt, LearningPath.id < cursor_id),
+            )
+        )
+
     rows = (
         await db.execute(
             select(LearningPath)
-            .where(LearningPath.group_id == group_id)
-            .order_by(LearningPath.created_at.desc())
+            .where(*page_filter)
+            .order_by(LearningPath.created_at.desc(), LearningPath.id.desc())
+            .limit(limit)
         )
     ).scalars().all()
+
+    total = int((await db.execute(
+        select(func.count(LearningPath.id)).where(*base_filter)
+    )).scalar_one() or 0)
+
     if not rows:
-        return []
+        return {"items": [], "next_cursor": None, "total": total}
 
     path_ids = [p.id for p in rows]
     module_counts = dict(
@@ -338,21 +364,23 @@ async def list_paths(db: AsyncSession, group_id: str, user_id: str) -> list[dict
         ).all()
     )
 
-    out = []
+    items = []
     for p in rows:
-        total = int(module_counts.get(p.id, 0))
+        total_modules = int(module_counts.get(p.id, 0))
         done = int(completed_counts.get(p.id, 0))
-        out.append({
+        items.append({
             "id": p.id,
             "title": p.title,
             "summary": p.summary,
             "estimated_minutes": p.estimated_minutes,
-            "module_count": total,
+            "module_count": total_modules,
             "completed_modules": done,
-            "progress_pct": round(100.0 * done / total) if total else 0,
+            "progress_pct": round(100.0 * done / total_modules) if total_modules else 0,
             "created_at": p.created_at.isoformat(),
         })
-    return out
+
+    next_cursor = encode_cursor(rows[-1].created_at, rows[-1].id) if len(rows) == limit else None
+    return {"items": items, "next_cursor": next_cursor, "total": total}
 
 
 async def get_path(db: AsyncSession, group_id: str, path_id: str, user_id: str) -> dict:

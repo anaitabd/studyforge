@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import api from "@/lib/api";
 
@@ -16,21 +16,34 @@ export interface GroupFile {
   created_at: string;
 }
 
-export function useFiles(groupId: string) {
+interface FilesPage {
+  items: GroupFile[];
+  next_cursor: string | null;
+  total: number;
+}
+
+export function useFiles(groupId: string, status?: string) {
   const qc = useQueryClient();
 
-  const query = useQuery<GroupFile[]>({
-    queryKey: ["files", groupId],
-    queryFn: async () => {
-      const res = await api.get(`/api/v1/groups/${groupId}/files`);
-      return res.data.files ?? res.data;
+  const query = useInfiniteQuery<FilesPage>({
+    queryKey: ["files", groupId, status],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "20" });
+      if (pageParam) params.set("cursor", pageParam as string);
+      if (status) params.set("status", status);
+      const res = await api.get(`/api/v1/groups/${groupId}/files?${params}`);
+      return res.data as FilesPage;
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   });
 
-  // Poll for status while any file is not terminal
-  const pendingCount = query.data?.filter(
+  const allFiles = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+
+  const pendingCount = allFiles.filter(
     (f) => f.status === "uploading" || f.status === "processing"
-  ).length ?? 0;
+  ).length;
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -45,7 +58,7 @@ export function useFiles(groupId: string) {
     };
   }, [pendingCount, groupId, qc]);
 
-  return query;
+  return { ...query, allFiles, total };
 }
 
 export function useUploadFile(groupId: string) {
@@ -79,5 +92,16 @@ export function useDownloadFile(groupId: string) {
       const res = await api.get<{ url: string; name: string }>(`/api/v1/groups/${groupId}/files/${fileId}/download`);
       return res.data;
     },
+  });
+}
+
+export function useRetryFile(groupId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (fileId: string) => {
+      const res = await api.post(`/api/v1/groups/${groupId}/files/${fileId}/retry`);
+      return res.data as { message: string; status: string };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["files", groupId] }),
   });
 }

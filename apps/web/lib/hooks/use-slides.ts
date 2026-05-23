@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 
 export interface SlideQuiz {
@@ -67,19 +67,35 @@ export interface SlideDeckDetail {
   my_quiz_answers: Record<string, { selected_index: number; is_correct: boolean }>;
 }
 
+interface SlideDecksPage {
+  items: SlideDeckSummary[];
+  next_cursor: string | null;
+  total: number;
+}
+
 export function useSlideDecks(groupId: string) {
-  return useQuery<SlideDeckSummary[]>({
+  const query = useInfiniteQuery<SlideDecksPage>({
     queryKey: ["slide-decks", groupId],
-    queryFn: async () => {
-      const res = await api.get(`/api/v1/groups/${groupId}/slide-decks`);
-      return res.data.decks ?? [];
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "20" });
+      if (pageParam) params.set("cursor", pageParam as string);
+      const res = await api.get(`/api/v1/groups/${groupId}/slide-decks?${params}`);
+      return res.data as SlideDecksPage;
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: !!groupId,
     refetchInterval: (q) => {
-      const data = q.state.data as SlideDeckSummary[] | undefined;
-      return data?.some((d) => d.status === "generating") ? 3000 : false;
+      const generating = q.state.data?.pages
+        .flatMap((p) => p.items)
+        .some((d) => d.status === "generating");
+      return generating ? 3000 : false;
     },
   });
+
+  const allDecks = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+  return { ...query, allDecks, total };
 }
 
 export function useSlideDeck(groupId: string, deckId: string) {

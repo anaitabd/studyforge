@@ -8,11 +8,12 @@ import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select, func, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import engine, get_db
+from app.core.pagination import Pagination, encode_cursor
 from app.core.security import require_role
 from app.models.audit_log import AuditLog
 from app.models.feature_flag import FeatureFlag
@@ -222,20 +223,35 @@ async def get_ai_costs(_: Annotated[User, SuperAdmin]):
 async def search_users(
     _: Annotated[User, SuperAdmin],
     db: DB,
+    pagination: Pagination,
     q: str = Query(..., min_length=2),
-    limit: int = Query(20, ge=1, le=100),
 ):
     like = f"%{q}%"
-    result = await db.execute(
-        select(User)
-        .where(
-            User.is_deleted == False,  # noqa: E712
-            (User.email.ilike(like) | User.name.ilike(like)),
+    cursor_dt, cursor_id = pagination.decode()
+
+    base_filter = [
+        User.is_deleted == False,  # noqa: E712
+        (User.email.ilike(like) | User.name.ilike(like)),
+    ]
+    page_filter = list(base_filter)
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                User.created_at < cursor_dt,
+                and_(User.created_at == cursor_dt, User.id < cursor_id),
+            )
         )
-        .order_by(User.created_at.desc())
-        .limit(limit)
-    )
-    users = result.scalars().all()
+
+    users = (await db.execute(
+        select(User)
+        .where(*page_filter)
+        .order_by(User.created_at.desc(), User.id.desc())
+        .limit(pagination.limit)
+    )).scalars().all()
+
+    total = int((await db.execute(
+        select(func.count(User.id)).where(*base_filter)
+    )).scalar_one() or 0)
 
     school_ids = {u.school_id for u in users if u.school_id}
     school_names: dict[str, str] = {}
@@ -246,19 +262,25 @@ async def search_users(
         for s in schools_result.scalars().all():
             school_names[s.id] = s.name
 
-    return [
-        {
-            "id": u.id,
-            "name": u.name,
-            "email": u.email,
-            "role": u.role,
-            "plan": u.plan,
-            "school": school_names.get(u.school_id) if u.school_id else None,
-            "is_active": u.is_active,
-            "created_at": u.created_at.isoformat(),
-        }
-        for u in users
-    ]
+    next_cursor = encode_cursor(users[-1].created_at, users[-1].id) if len(users) == pagination.limit else None
+
+    return {
+        "items": [
+            {
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role,
+                "plan": u.plan,
+                "school": school_names.get(u.school_id) if u.school_id else None,
+                "is_active": u.is_active,
+                "created_at": u.created_at.isoformat(),
+            }
+            for u in users
+        ],
+        "next_cursor": next_cursor,
+        "total": total,
+    }
 
 
 class PlanOverrideRequest(BaseModel):

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { LONG_AI_REQUEST_TIMEOUT_MS } from "@/lib/api";
 
 export type QuestionType =
@@ -75,14 +75,28 @@ export interface GradingResult {
   study_recommendations: string[];
 }
 
+interface ExamsPage {
+  items: Exam[];
+  next_cursor: string | null;
+  total: number;
+}
+
 export function useExams(groupId: string) {
-  return useQuery<Exam[]>({
+  const query = useInfiniteQuery<ExamsPage>({
     queryKey: ["exams", groupId],
-    queryFn: async () => {
-      const res = await api.get(`/api/v1/groups/${groupId}/exams`);
-      return res.data.exams ?? res.data;
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "20" });
+      if (pageParam) params.set("cursor", pageParam as string);
+      const res = await api.get(`/api/v1/groups/${groupId}/exams?${params}`);
+      return res.data as ExamsPage;
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   });
+
+  const allExams = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+  return { ...query, allExams, total };
 }
 
 export function useExam(groupId: string, examId: string) {

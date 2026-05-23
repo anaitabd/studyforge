@@ -21,6 +21,7 @@ from app.models.goal import StudyGoal, StreakRecord, KpiCache
 from app.models.gamification import UserXP, UserLevel, Badge, UserBadge, DailyChallenge
 from app.models.live_quiz import LiveQuiz, LiveQuizParticipant, LiveQuizAnswer
 from app.models.knowledge_graph import KnowledgeConcept, ConceptRelation
+from app.models.failed_task import FailedTask
 
 __all__ = [
     "User", "School",
@@ -41,4 +42,5 @@ __all__ = [
     "UserXP", "UserLevel", "Badge", "UserBadge", "DailyChallenge",
     "LiveQuiz", "LiveQuizParticipant", "LiveQuizAnswer",
     "KnowledgeConcept", "ConceptRelation",
+    "FailedTask",
 ]

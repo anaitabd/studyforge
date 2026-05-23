@@ -4,10 +4,12 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile
-from sqlalchemy import select, delete, func
+from sqlalchemy import and_, or_, select, delete, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.pagination import Pagination, encode_cursor
+from app.core.plans import get_upload_limit
 from app.core.security import get_current_user
 from app.models.file import File
 from app.models.group import GroupMember
@@ -19,11 +21,61 @@ from app.tasks.file_tasks import process_file_task
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["files"])
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
-
 # Reusable annotated dependency aliases
 CurrentUser = Annotated[object, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+# ── MIME validation ───────────────────────────────────────────────────────────
+
+ALLOWED_MIME_TYPES: frozenset[str] = frozenset({
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+})
+
+_MIME_LABELS: dict[str, str] = {
+    "application/pdf": "PDF",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCX",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PPTX",
+    "text/plain": "TXT",
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/webp": "WebP",
+}
+
+
+def _detect_mime(content: bytes) -> str | None:
+    """Identify MIME type from magic bytes — never trusts file extension or Content-Type header."""
+    if content[:4] == b"%PDF":
+        return "application/pdf"
+    if content[:4] == b"PK\x03\x04":
+        # DOCX and PPTX are both ZIP archives; the [Content_Types].xml at the
+        # start of the archive contains the distinguishing namespace string.
+        head = content[:2048]
+        if b"wordprocessingml" in head:
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if b"presentationml" in head:
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        return None  # unrecognised ZIP variant
+    if content[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+    # Plain text: no null bytes and valid UTF-8 in the first 512 bytes
+    try:
+        sample = content[:512]
+        if sample and b"\x00" not in sample:
+            sample.decode("utf-8")
+            return "text/plain"
+    except (UnicodeDecodeError, ValueError):
+        pass
+    return None
 
 
 async def verify_group_member(group_id: str, user_id: str, db: AsyncSession):
@@ -60,32 +112,41 @@ async def list_files(
     group_id: str,
     current_user: CurrentUser,
     db: DB,
-    limit: int = 50,
-    offset: int = 0,
+    pagination: Pagination,
     status: str | None = None,
 ):
     await verify_group_member(group_id, current_user.id, db)
-    limit = max(1, min(limit, 200))
-    offset = max(0, offset)
+
+    cursor_dt, cursor_id = pagination.decode()
 
     base_filter = [File.group_id == group_id]
     if status:
         base_filter.append(File.status == status)
 
-    result = await db.execute(
+    page_filter = list(base_filter)
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                File.created_at < cursor_dt,
+                and_(File.created_at == cursor_dt, File.id < cursor_id),
+            )
+        )
+
+    files = (await db.execute(
         select(File)
-        .where(*base_filter)
-        .order_by(File.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
-    files = result.scalars().all()
-    total_result = await db.execute(
+        .where(*page_filter)
+        .order_by(File.created_at.desc(), File.id.desc())
+        .limit(pagination.limit)
+    )).scalars().all()
+
+    total = int((await db.execute(
         select(func.count(File.id)).where(*base_filter)
-    )
-    total = int(total_result.scalar_one() or 0)
+    )).scalar_one() or 0)
+
+    next_cursor = encode_cursor(files[-1].created_at, files[-1].id) if len(files) == pagination.limit else None
+
     return {
-        "files": [
+        "items": [
             {
                 "id": f.id,
                 "group_id": f.group_id,
@@ -102,8 +163,8 @@ async def list_files(
             }
             for f in files
         ],
+        "next_cursor": next_cursor,
         "total": total,
-        "has_more": offset + len(files) < total,
     }
 
 
@@ -111,7 +172,8 @@ async def list_files(
     "/groups/{group_id}/files",
     responses={
         403: {"description": "Not a member of this group"},
-        413: {"description": "File too large. Max 50MB."},
+        413: {"description": "File exceeds your plan's upload limit"},
+        415: {"description": "Unsupported file type"},
     },
 )
 async def upload_file(
@@ -123,16 +185,30 @@ async def upload_file(
     await verify_group_member(group_id, current_user.id, db)
 
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="File too large. Max 50MB.")
 
-    mime_type = file.content_type or "application/octet-stream"
+    # ── Plan-based size limit ─────────────────────────────────────────────────
+    max_bytes = get_upload_limit(current_user.plan)
+    if len(content) > max_bytes:
+        max_mb = max_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large for your plan ({current_user.plan}). Max {max_mb} MB.",
+        )
+
+    # ── Magic-bytes MIME detection (ignores client Content-Type / extension) ──
+    detected_mime = _detect_mime(content)
+    if detected_mime is None or detected_mime not in ALLOWED_MIME_TYPES:
+        allowed = ", ".join(sorted(_MIME_LABELS.values()))
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type. Allowed: {allowed}.",
+        )
 
     file_id = str(uuid.uuid4())
-    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin"
+    ext = file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "bin"
     r2_key = f"groups/{group_id}/files/{file_id}.{ext}"
 
-    await storage_service.upload_file(content, r2_key, mime_type)
+    await storage_service.upload_file(content, r2_key, detected_mime)
 
     file_record = File(
         id=file_id,
@@ -140,7 +216,7 @@ async def upload_file(
         user_id=current_user.id,
         name=file.filename,
         r2_key=r2_key,
-        mime_type=mime_type,
+        mime_type=detected_mime,
         size_bytes=len(content),
         status="uploading",
     )
@@ -148,13 +224,14 @@ async def upload_file(
     await db.commit()
     await db.refresh(file_record)
 
-    process_file_task.delay(file_id, r2_key, mime_type)
+    process_file_task.delay(file_id, r2_key, detected_mime)
 
-    logger.info(f"File {file_id} uploaded, processing queued")
+    logger.info("File %s uploaded (mime=%s, size=%d), processing queued", file_id, detected_mime, len(content))
 
     return {
         "id": file_record.id,
         "name": file_record.name,
+        "mime_type": detected_mime,
         "status": file_record.status,
         "size_bytes": file_record.size_bytes,
         "message": "File uploaded. Processing started.",
@@ -222,6 +299,57 @@ async def delete_file(
     await db.commit()
 
     return {"message": "File deleted successfully"}
+
+
+@router.post(
+    "/groups/{group_id}/files/{file_id}/retry",
+    responses={
+        400: {"description": "File is not in error state"},
+        403: {"description": "Not a member of this group"},
+        404: {"description": "File not found"},
+    },
+)
+async def retry_file(
+    group_id: str,
+    file_id: str,
+    current_user: CurrentUser,
+    db: DB,
+):
+    """Re-queue a failed file for processing. Any group member may trigger this."""
+    from datetime import datetime, timezone
+    from app.models.failed_task import FailedTask
+
+    await verify_group_member(group_id, current_user.id, db)
+
+    file_obj = (await db.execute(
+        select(File).where(File.id == file_id, File.group_id == group_id)
+    )).scalar_one_or_none()
+    if not file_obj:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if file_obj.status != "error":
+        raise HTTPException(
+            status_code=400,
+            detail=f"File is not in error state (current status: {file_obj.status})",
+        )
+
+    await db.execute(
+        update(File).where(File.id == file_id).values(status="uploading", error_message=None)
+    )
+
+    # Stamp dead-letter record so we know it was retried
+    await db.execute(
+        update(FailedTask)
+        .where(FailedTask.args["file_id"].astext == file_id)
+        .values(retried_at=datetime.now(timezone.utc))
+    )
+
+    await db.commit()
+
+    process_file_task.delay(file_id, file_obj.r2_key, file_obj.mime_type)
+
+    logger.info("File %s re-queued by user %s", file_id, current_user.id)
+    return {"message": "File re-queued for processing", "status": "uploading"}
 
 
 @router.get(

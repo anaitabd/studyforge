@@ -4,10 +4,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import and_, func, or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.pagination import Pagination, encode_cursor
 from app.core.security import get_current_user
 from app.models.group import Group, GroupMember
 from app.models.file import File
@@ -213,7 +214,7 @@ async def get_group(
 
 
 @router.get("/{group_id}/members")
-async def list_group_members(group_id: str, current_user: CurrentUser, db: DB):
+async def list_group_members(group_id: str, current_user: CurrentUser, db: DB, pagination: Pagination):
     membership_result = await db.execute(
         select(GroupMember).where(
             GroupMember.group_id == group_id,
@@ -223,15 +224,37 @@ async def list_group_members(group_id: str, current_user: CurrentUser, db: DB):
     if not membership_result.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Not a member of this group")
 
+    cursor_dt, cursor_id = pagination.decode()
+
+    page_filter = [GroupMember.group_id == group_id]
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                GroupMember.joined_at > cursor_dt,
+                and_(GroupMember.joined_at == cursor_dt, GroupMember.user_id > cursor_id),
+            )
+        )
+
+    total = int((await db.execute(
+        select(func.count(GroupMember.user_id)).where(GroupMember.group_id == group_id)
+    )).scalar_one() or 0)
+
     result = await db.execute(
         select(GroupMember, User)
         .join(User, User.id == GroupMember.user_id)
-        .where(GroupMember.group_id == group_id)
-        .order_by(GroupMember.joined_at)
+        .where(*page_filter)
+        .order_by(GroupMember.joined_at.asc(), GroupMember.user_id.asc())
+        .limit(pagination.limit)
     )
     rows = result.all()
+
+    next_cursor = None
+    if len(rows) == pagination.limit:
+        last_member = rows[-1][0]
+        next_cursor = encode_cursor(last_member.joined_at, last_member.user_id)
+
     return {
-        "members": [
+        "items": [
             {
                 "user_id": member.user_id,
                 "role": member.role,
@@ -241,7 +264,9 @@ async def list_group_members(group_id: str, current_user: CurrentUser, db: DB):
                 "avatar_url": user.avatar_url,
             }
             for member, user in rows
-        ]
+        ],
+        "next_cursor": next_cursor,
+        "total": total,
     }
 
 

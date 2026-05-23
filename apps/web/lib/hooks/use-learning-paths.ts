@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { LONG_AI_REQUEST_TIMEOUT_MS } from "@/lib/api";
 
 export interface LearningPathSummary {
@@ -42,14 +42,28 @@ export interface LearningPathDetail {
   created_at: string;
 }
 
+interface LearningPathsPage {
+  items: LearningPathSummary[];
+  next_cursor: string | null;
+  total: number;
+}
+
 export function useLearningPaths(groupId: string) {
-  return useQuery<LearningPathSummary[]>({
+  const query = useInfiniteQuery<LearningPathsPage>({
     queryKey: ["learning-paths", groupId],
-    queryFn: async () => {
-      const res = await api.get(`/api/v1/groups/${groupId}/learning-paths`);
-      return res.data.paths ?? [];
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "20" });
+      if (pageParam) params.set("cursor", pageParam as string);
+      const res = await api.get(`/api/v1/groups/${groupId}/learning-paths?${params}`);
+      return res.data as LearningPathsPage;
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   });
+
+  const allPaths = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+  return { ...query, allPaths, total };
 }
 
 export function useLearningPath(groupId: string, pathId: string) {

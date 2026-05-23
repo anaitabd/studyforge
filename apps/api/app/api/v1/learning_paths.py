@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.pagination import Pagination, encode_cursor
 from app.core.security import get_current_user
 from app.models.group import GroupMember
 from app.services import learning_path_service
@@ -65,10 +66,16 @@ async def generate_path(
 
 
 @router.get("/groups/{group_id}/learning-paths")
-async def list_paths(group_id: str, current_user: CurrentUser, db: DB):
+async def list_paths(group_id: str, current_user: CurrentUser, db: DB, pagination: Pagination):
     await _require_group_member(group_id, current_user.id, db)
-    paths = await learning_path_service.list_paths(db, group_id, current_user.id)
-    return {"paths": paths}
+    cursor_dt, cursor_id = pagination.decode()
+    result = await learning_path_service.list_paths(
+        db, group_id, current_user.id,
+        limit=pagination.limit,
+        cursor_dt=cursor_dt,
+        cursor_id=cursor_id,
+    )
+    return result
 
 
 @router.get("/groups/{group_id}/learning-paths/{path_id}")

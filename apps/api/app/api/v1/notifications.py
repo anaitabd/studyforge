@@ -2,10 +2,11 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.pagination import Pagination, encode_cursor
 from app.core.security import get_current_user
 from app.models.notification import Notification
 
@@ -20,25 +21,47 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 async def list_notifications(
     current_user: CurrentUser,
     db: DB,
-    limit: int = 50,
+    pagination: Pagination,
     unread_only: bool = False,
 ):
     """Return the current user's notifications (newest first)."""
-    stmt = select(Notification).where(Notification.user_id == current_user.id)
+    cursor_dt, cursor_id = pagination.decode()
+
+    base_filter = [Notification.user_id == current_user.id]
     if unread_only:
-        stmt = stmt.where(Notification.is_read == False)  # noqa: E712
-    stmt = stmt.order_by(Notification.created_at.desc()).limit(min(max(limit, 1), 200))
+        base_filter.append(Notification.is_read == False)  # noqa: E712
 
-    result = await db.execute(stmt)
-    items = result.scalars().all()
+    page_filter = list(base_filter)
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                Notification.created_at < cursor_dt,
+                and_(Notification.created_at == cursor_dt, Notification.id < cursor_id),
+            )
+        )
 
-    unread = await db.execute(
-        select(Notification).where(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
-    )
-    unread_count = len(unread.scalars().all())
+    items = (await db.execute(
+        select(Notification)
+        .where(*page_filter)
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .limit(pagination.limit)
+    )).scalars().all()
+
+    total = int((await db.execute(
+        select(func.count(Notification.id)).where(*base_filter)
+    )).scalar_one() or 0)
+
+    unread_count = int((await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.user_id == current_user.id,
+            Notification.is_read == False,  # noqa: E712
+        )
+    )).scalar_one() or 0)
+
+    next_cursor = encode_cursor(items[-1].created_at, items[-1].id) if len(items) == pagination.limit else None
 
     return {
-        "notifications": [
+        "items": [
             {
                 "id": n.id,
                 "type": n.type,
@@ -50,6 +73,8 @@ async def list_notifications(
             }
             for n in items
         ],
+        "next_cursor": next_cursor,
+        "total": total,
         "unread_count": unread_count,
     }
 

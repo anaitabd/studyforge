@@ -3,10 +3,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete
+from sqlalchemy import and_, func, or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.pagination import Pagination, encode_cursor
 from app.core.rate_limiter import rate_limiter
 from app.core.security import get_current_user
 from app.models.flashcard import Flashcard, FlashcardProgress, FlashcardSet
@@ -120,15 +121,31 @@ async def list_flashcard_sets(
     group_id: str,
     current_user: CurrentUser,
     db: DB,
+    pagination: Pagination,
 ):
     await _require_group_member(group_id, current_user.id, db)
 
-    result = await db.execute(
+    cursor_dt, cursor_id = pagination.decode()
+
+    page_filter = [FlashcardSet.group_id == group_id]
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                FlashcardSet.created_at < cursor_dt,
+                and_(FlashcardSet.created_at == cursor_dt, FlashcardSet.id < cursor_id),
+            )
+        )
+
+    sets = (await db.execute(
         select(FlashcardSet)
-        .where(FlashcardSet.group_id == group_id)
-        .order_by(FlashcardSet.created_at.desc())
-    )
-    sets = result.scalars().all()
+        .where(*page_filter)
+        .order_by(FlashcardSet.created_at.desc(), FlashcardSet.id.desc())
+        .limit(pagination.limit)
+    )).scalars().all()
+
+    total = int((await db.execute(
+        select(func.count(FlashcardSet.id)).where(FlashcardSet.group_id == group_id)
+    )).scalar_one() or 0)
 
     output = []
     for s in sets:
@@ -137,7 +154,6 @@ async def list_flashcard_sets(
         )
         all_cards = cards_result.scalars().all()
 
-        # Count how many cards are due today for this user
         from datetime import date
         today = date.today()
         progress_result = await db.execute(
@@ -148,7 +164,6 @@ async def list_flashcard_sets(
             )
         )
         due_count = len(progress_result.scalars().all())
-        # New cards (no progress record) also count as due
         progress_all = await db.execute(
             select(FlashcardProgress).where(
                 FlashcardProgress.card_id.in_([c.id for c in all_cards]),
@@ -168,7 +183,9 @@ async def list_flashcard_sets(
             "created_at": s.created_at.isoformat(),
         })
 
-    return {"sets": output}
+    next_cursor = encode_cursor(sets[-1].created_at, sets[-1].id) if len(sets) == pagination.limit else None
+
+    return {"items": output, "next_cursor": next_cursor, "total": total}
 
 
 @router.get(

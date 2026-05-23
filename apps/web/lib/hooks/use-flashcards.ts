@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 
 export interface FlashcardSet {
@@ -27,14 +27,28 @@ export interface Flashcard {
   } | null;
 }
 
+interface FlashcardSetsPage {
+  items: FlashcardSet[];
+  next_cursor: string | null;
+  total: number;
+}
+
 export function useFlashcardSets(groupId: string) {
-  return useQuery<FlashcardSet[]>({
+  const query = useInfiniteQuery<FlashcardSetsPage>({
     queryKey: ["flashcard-sets", groupId],
-    queryFn: async () => {
-      const res = await api.get(`/api/v1/groups/${groupId}/flashcards`);
-      return res.data.sets ?? res.data;
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "20" });
+      if (pageParam) params.set("cursor", pageParam as string);
+      const res = await api.get(`/api/v1/groups/${groupId}/flashcards?${params}`);
+      return res.data as FlashcardSetsPage;
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   });
+
+  const allSets = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+  return { ...query, allSets, total };
 }
 
 export function useDueCards(groupId: string, setId: string) {

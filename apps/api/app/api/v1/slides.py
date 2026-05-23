@@ -5,10 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.pagination import Pagination, encode_cursor
 from app.core.security import get_current_user
 from app.models.group import GroupMember
 from app.models.slide_deck import Slide, SlideDeck, SlideProgress, SlideQuizAnswer
@@ -127,20 +128,27 @@ async def list_decks(
     group_id: str,
     current_user: CurrentUser,
     db: DB,
-    limit: int = 50,
-    offset: int = 0,
+    pagination: Pagination,
 ):
     await _require_group_member(group_id, current_user.id, db)
-    limit = max(1, min(limit, 100))
-    offset = max(0, offset)
+
+    cursor_dt, cursor_id = pagination.decode()
+
+    page_filter = [SlideDeck.group_id == group_id]
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                SlideDeck.created_at < cursor_dt,
+                and_(SlideDeck.created_at == cursor_dt, SlideDeck.id < cursor_id),
+            )
+        )
 
     decks = (
         await db.execute(
             select(SlideDeck)
-            .where(SlideDeck.group_id == group_id)
-            .order_by(SlideDeck.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+            .where(*page_filter)
+            .order_by(SlideDeck.created_at.desc(), SlideDeck.id.desc())
+            .limit(pagination.limit)
         )
     ).scalars().all()
     deck_ids = [d.id for d in decks]
@@ -181,7 +189,9 @@ async def list_decks(
         select(func.count(SlideDeck.id)).where(SlideDeck.group_id == group_id)
     )).scalar_one() or 0)
 
-    return {"decks": items, "total": total, "has_more": offset + len(items) < total}
+    next_cursor = encode_cursor(decks[-1].created_at, decks[-1].id) if len(decks) == pagination.limit else None
+
+    return {"items": items, "next_cursor": next_cursor, "total": total}
 
 
 @router.get("/groups/{group_id}/slide-decks/{deck_id}")

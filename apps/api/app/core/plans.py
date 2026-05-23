@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 
+_MB = 1024 * 1024
+
 PLANS: dict = {
     "free": {
         "name_fr": "Gratuit",
@@ -15,6 +17,7 @@ PLANS: dict = {
             "flashcard_sets": 5,
             "ai_solve_day": 3,
             "live_quiz_month": 0,
+            "max_upload_bytes": 10 * _MB,
         },
         "features": ["rag_chat", "flashcards", "exams_basic"],
     },
@@ -31,6 +34,7 @@ PLANS: dict = {
             "flashcard_sets": 50,
             "ai_solve_day": 20,
             "live_quiz_month": 5,
+            "max_upload_bytes": 50 * _MB,
         },
         "features": [
             "rag_chat", "flashcards", "exams_all_types", "graph_rag",
@@ -50,6 +54,7 @@ PLANS: dict = {
             "flashcard_sets": 500,
             "ai_solve_day": 100,
             "live_quiz_month": 50,
+            "max_upload_bytes": 50 * _MB,
         },
         "features": ["all"],
     },
@@ -58,7 +63,7 @@ PLANS: dict = {
         "name_ar": "مدرسة",
         "price_usd": 29.0,
         "price_mad": 290,
-        "limits": {"all": "unlimited"},
+        "limits": {"all": "unlimited", "max_upload_bytes": 200 * _MB},
         "features": ["all", "org_dashboard", "teacher_tools", "analytics"],
     },
     # Legacy aliases
@@ -75,6 +80,7 @@ PLANS: dict = {
             "flashcard_sets": 50,
             "ai_solve_day": 20,
             "live_quiz_month": 5,
+            "max_upload_bytes": 50 * _MB,
         },
         "features": ["rag_chat", "flashcards", "exams_all_types", "graph_rag",
                      "gamification", "goals", "live_quiz", "photo_solve"],
@@ -84,7 +90,7 @@ PLANS: dict = {
         "name_ar": "مدرسة",
         "price_usd": 29.0,
         "price_mad": 290,
-        "limits": {"all": "unlimited"},
+        "limits": {"all": "unlimited", "max_upload_bytes": 200 * _MB},
         "features": ["all", "org_dashboard", "teacher_tools", "analytics"],
     },
 }
@@ -92,3 +98,9 @@ PLANS: dict = {
 
 def get_plan(plan: str) -> dict:
     return PLANS.get(plan, PLANS["free"])
+
+
+def get_upload_limit(plan: str) -> int:
+    """Return the max upload size in bytes for the given plan."""
+    limits = get_plan(plan).get("limits", {})
+    return int(limits.get("max_upload_bytes", 10 * _MB))
