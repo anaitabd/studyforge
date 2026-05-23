@@ -148,6 +148,7 @@ def require_role(*roles: str):
         if current_user.role not in roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return current_user
+    return Depends(dependency)
 
 
 async def handle_clerk_webhook(db: AsyncSession, payload: dict, svix_id: str, svix_ts: str, svix_sig: str) -> None:
