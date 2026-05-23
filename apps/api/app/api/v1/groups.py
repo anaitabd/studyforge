@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import and_, func, or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,23 @@ class UpdateGroupRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     color: str | None = None
+    visibility: str | None = None
+    school_id: str | None = None
+
+    @field_validator("color")
+    @classmethod
+    def _valid_color(cls, v: str | None) -> str | None:
+        import re
+        if v is not None and not re.match(r"^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$", v):
+            raise ValueError("color must be a valid hex value, e.g. #1A3A5C")
+        return v
+
+    @field_validator("visibility")
+    @classmethod
+    def _valid_visibility(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("public", "private"):
+            raise ValueError("visibility must be 'public' or 'private'")
+        return v
 
 
 @router.get("")
@@ -210,6 +227,53 @@ async def get_group(
         ],
         "member_count": len(all_members),
         "created_at": group.created_at.isoformat(),
+    }
+
+
+@router.patch(
+    "/{group_id}",
+    responses={
+        403: {"description": "Owner or teacher role required"},
+        404: {"description": "Group not found"},
+    },
+)
+async def update_group(
+    group_id: str,
+    body: UpdateGroupRequest,
+    current_user: CurrentUser,
+    db: DB,
+):
+    member_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == current_user.id,
+            GroupMember.role.in_(["owner", "teacher"]),
+        )
+    )
+    if not member_result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Owner or teacher role required")
+
+    group = (await db.execute(select(Group).where(Group.id == group_id))).scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(group, field, value)
+
+    await db.commit()
+    await db.refresh(group)
+
+    return {
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "color": group.color,
+        "visibility": group.visibility,
+        "school_id": group.school_id,
+        "is_archived": group.is_archived,
+        "owner_user_id": group.owner_user_id,
+        "created_at": group.created_at.isoformat(),
+        "updated_at": group.updated_at.isoformat(),
     }
 
 

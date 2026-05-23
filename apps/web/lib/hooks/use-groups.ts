@@ -10,12 +10,22 @@ export interface Group {
   owner_id: string;
   plan: string;
   color: string | null;
+  visibility: "public" | "private";
+  school_id: string | null;
   my_role: string | null;
   is_archived: boolean;
   file_count: number;
   member_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface GroupUpdate {
+  name?: string;
+  description?: string | null;
+  color?: string;
+  visibility?: "public" | "private";
+  school_id?: string | null;
 }
 
 export function useGroups() {
@@ -67,6 +77,31 @@ export function useGroupMembers(groupId: string) {
       return res.data;
     },
     enabled: !!groupId,
+  });
+}
+
+export function useUpdateGroup(groupId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: GroupUpdate) => {
+      const res = await api.patch(`/api/v1/groups/${groupId}`, data);
+      return res.data as Group;
+    },
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ["groups", groupId] });
+      const prev = qc.getQueryData<Group>(["groups", groupId]);
+      qc.setQueryData(["groups", groupId], (old: Group | undefined) =>
+        old ? { ...old, ...data } : old
+      );
+      return { prev };
+    },
+    onError: (_err, _data, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["groups", groupId], ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["groups", groupId] });
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
   });
 }
 
