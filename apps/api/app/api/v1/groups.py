@@ -353,12 +353,12 @@ async def delete_group(
     if not member_result.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Only the owner can delete a group")
 
-    from app.services.vector_store import vector_store
-    vector_store.delete_group(group_id)
-
     await db.execute(delete(GroupMember).where(GroupMember.group_id == group_id))
     await db.execute(delete(Group).where(Group.id == group_id))
     await db.commit()
+
+    from app.tasks.file_tasks import delete_group_vectors_task
+    delete_group_vectors_task.delay(group_id)
 
     return {"message": "Group deleted"}
 

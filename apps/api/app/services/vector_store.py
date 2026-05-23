@@ -183,6 +183,46 @@ class VectorStore:
             )
         ]
 
+    def delete_file_embeddings(self, file_id: str) -> None:
+        """Delete all vectors whose metadata.file_id matches, across every collection.
+
+        Context-free: does not require org_id/user_id. Iterates all collections so
+        it handles files uploaded by different users in the same group. No-op if
+        ChromaDB is unavailable or the document does not exist.
+        """
+        try:
+            client = self._get_client()
+            for coll in client.list_collections():
+                try:
+                    coll.delete(where={"file_id": {"$eq": file_id}})
+                except Exception:
+                    pass
+            logger.info("Deleted embeddings for file %s", file_id)
+        except Exception as e:
+            logger.error("delete_file_embeddings failed for file %s: %s", file_id, e)
+
+    def delete_group_collection(self, group_id: str) -> None:
+        """Delete all vectors whose metadata.group_id matches, across every collection.
+
+        Also removes the legacy group-scoped collection if it exists.
+        No-op if ChromaDB is unavailable or the group has no vectors.
+        """
+        try:
+            client = self._get_client()
+            for coll in client.list_collections():
+                try:
+                    coll.delete(where={"group_id": {"$eq": group_id}})
+                except Exception:
+                    pass
+            # Remove legacy per-group collection if still present
+            try:
+                client.delete_collection(self._legacy_group_collection_name(group_id))
+            except Exception:
+                pass
+            logger.info("Deleted all embeddings for group %s", group_id)
+        except Exception as e:
+            logger.error("delete_group_collection failed for group %s: %s", group_id, e)
+
     def delete_group(self, group_id: str) -> None:
         """Delete the legacy group-scoped collection (used during migration)."""
         name = self._legacy_group_collection_name(group_id)

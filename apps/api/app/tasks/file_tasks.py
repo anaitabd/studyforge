@@ -194,6 +194,19 @@ async def _handle_final_failure(
 # ── task ──────────────────────────────────────────────────────────────────────
 
 @celery_app.task(
+    name="app.tasks.file_tasks.delete_group_vectors",
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=30,
+)
+def delete_group_vectors_task(group_id: str):
+    """Delete all ChromaDB embeddings for a group after the group is removed from the DB."""
+    from app.services.vector_store import vector_store as _vs
+    _vs.delete_group_collection(group_id)
+    logger.info("Vector cleanup complete for deleted group %s", group_id)
+
+
+@celery_app.task(
     bind=True,
     name="app.tasks.file_tasks.process_file",
     # Override base class defaults for this specific task

@@ -293,7 +293,10 @@ async def delete_file(
     except Exception as e:
         logger.warning(f"Could not delete R2 file {file_obj.r2_key}: {e}")
 
-    vector_store.delete_file_chunks(file_id, current_user.org_id, file_obj.user_id)
+    try:
+        vector_store.delete_file_embeddings(file_id)
+    except Exception as e:
+        logger.warning("ChromaDB cleanup failed for file %s (continuing): %s", file_id, e)
 
     await db.execute(delete(File).where(File.id == file_id))
     await db.commit()
