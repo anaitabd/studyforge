@@ -148,4 +148,57 @@ def require_role(*roles: str):
         if current_user.role not in roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return current_user
+
+
+async def handle_clerk_webhook(db: AsyncSession, payload: dict, svix_id: str, svix_ts: str, svix_sig: str) -> None:
+    """Handle Clerk lifecycle webhooks (user.created, user.updated, user.deleted)."""
+    from svix.webhooks import Webhook, WebhookVerificationError
+    import json
+
+    if settings.CLERK_WEBHOOK_SECRET:
+        wh = Webhook(settings.CLERK_WEBHOOK_SECRET)
+        try:
+            wh.verify(json.dumps(payload).encode(), {
+                "svix-id": svix_id,
+                "svix-timestamp": svix_ts,
+                "svix-signature": svix_sig,
+            })
+        except WebhookVerificationError:
+            raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    event_type = payload.get("type", "")
+    data = payload.get("data", {})
+    clerk_id = data.get("id")
+    if not clerk_id:
+        return
+
+    from sqlalchemy import select, delete
+    from app.models.user import User
+
+    if event_type == "user.created":
+        await _get_or_create_user(clerk_id, db)
+
+    elif event_type == "user.updated":
+        result = await db.execute(select(User).where(User.clerk_id == clerk_id))
+        user = result.scalar_one_or_none()
+        if user:
+            emails = data.get("email_addresses", [])
+            primary_id = data.get("primary_email_address_id")
+            email = next((e["email_address"] for e in emails if e.get("id") == primary_id), None)
+            first = data.get("first_name") or ""
+            last = data.get("last_name") or ""
+            name = f"{first} {last}".strip()
+            avatar = data.get("profile_image_url") or data.get("image_url")
+            if email:
+                user.email = email
+            if name:
+                user.name = name
+            if avatar:
+                user.avatar_url = avatar
+            await db.commit()
+
+    elif event_type == "user.deleted":
+        await db.execute(delete(User).where(User.clerk_id == clerk_id))
+        await db.commit()
+        logger.info(f"Deleted user with clerk_id={clerk_id}")
     return Depends(dependency)
