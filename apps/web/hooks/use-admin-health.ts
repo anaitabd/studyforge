@@ -1,5 +1,5 @@
 "use client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 
 // ─── Health overview ──────────────────────────────────────────────────────────
@@ -258,4 +258,51 @@ export function useUpdateFeatureFlag() {
       );
     },
   });
+}
+
+// ─── Audit Logs ───────────────────────────────────────────────────────────────
+
+export interface AuditLog {
+  id: string;
+  actor_id: string;
+  actor_email: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  reason: string | null;
+  ip: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+interface AuditLogsPage {
+  items: AuditLog[];
+  next_cursor: string | null;
+  total: number;
+}
+
+export interface AuditLogFilters {
+  actor_email?: string;
+  action?: string;
+  resource_type?: string;
+  resource_id?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+export function useAuditLogs(filters: AuditLogFilters) {
+  const query = useInfiniteQuery<AuditLogsPage>({
+    queryKey: ["admin-audit-logs", filters],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (pageParam) params.set("cursor", pageParam as string);
+      Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+      return apiGet<AuditLogsPage>(`/api/v1/admin/audit-logs?${params}`);
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  });
+  const allLogs = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+  return { ...query, allLogs, total };
 }

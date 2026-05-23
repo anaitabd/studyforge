@@ -437,6 +437,121 @@ async def update_feature_flag(
     }
 
 
+# ─── Audit Logs ──────────────────────────────────────────────────────────────
+
+_ACTION_RESOURCE_TYPE: dict[str, str] = {
+    "override_plan": "user",
+    "suspend_user": "user",
+    "update_feature_flag": "feature_flag",
+}
+
+
+def _resource_type(action: str) -> str:
+    return _ACTION_RESOURCE_TYPE.get(action, "system")
+
+
+def _parse_dt_param(s: str | None):
+    if not s:
+        return None
+    from datetime import datetime, timezone
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    _: Annotated[User, SuperAdmin],
+    db: DB,
+    pagination: Pagination,
+    actor_email: str | None = Query(None),
+    actor_id: str | None = Query(None),
+    action: str | None = Query(None),
+    resource_type: str | None = Query(None),
+    resource_id: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    cursor_dt, cursor_id = pagination.decode()
+
+    base_filter = []
+    if actor_id:
+        base_filter.append(AuditLog.actor_id == actor_id)
+    if actor_email:
+        base_filter.append(User.email.ilike(f"%{actor_email}%"))
+    if action:
+        base_filter.append(AuditLog.action.ilike(f"%{action}%"))
+    if resource_id:
+        base_filter.append(AuditLog.target_id == resource_id)
+    if resource_type:
+        matching = [a for a, rt in _ACTION_RESOURCE_TYPE.items() if rt == resource_type]
+        if matching:
+            base_filter.append(AuditLog.action.in_(matching))
+    dt_from = _parse_dt_param(date_from)
+    dt_to = _parse_dt_param(date_to)
+    if dt_from:
+        base_filter.append(AuditLog.created_at >= dt_from)
+    if dt_to:
+        base_filter.append(AuditLog.created_at <= dt_to)
+
+    page_filter = list(base_filter)
+    if cursor_dt is not None:
+        page_filter.append(
+            or_(
+                AuditLog.created_at < cursor_dt,
+                and_(AuditLog.created_at == cursor_dt, AuditLog.id < cursor_id),
+            )
+        )
+
+    base_stmt = (
+        select(AuditLog, User.email.label("actor_email"))
+        .outerjoin(User, User.id == AuditLog.actor_id)
+    )
+    if base_filter:
+        count_stmt = select(func.count(AuditLog.id)).outerjoin(User, User.id == AuditLog.actor_id).where(*base_filter)
+    else:
+        count_stmt = select(func.count(AuditLog.id))
+
+    page_stmt = base_stmt
+    if page_filter:
+        page_stmt = page_stmt.where(*page_filter)
+    page_stmt = page_stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(pagination.limit)
+
+    rows, total = await asyncio.gather(
+        db.execute(page_stmt),
+        db.execute(count_stmt),
+    )
+    rows = rows.all()
+    total = int(total.scalar_one() or 0)
+
+    next_cursor = None
+    if len(rows) == pagination.limit:
+        last_log = rows[-1][0]
+        next_cursor = encode_cursor(last_log.created_at, last_log.id)
+
+    return {
+        "items": [
+            {
+                "id": log.id,
+                "actor_id": log.actor_id,
+                "actor_email": actor_email_val,
+                "action": log.action,
+                "resource_type": _resource_type(log.action),
+                "resource_id": log.target_id,
+                "reason": log.reason,
+                "ip": log.ip,
+                "metadata": log.meta,
+                "created_at": log.created_at.isoformat(),
+            }
+            for log, actor_email_val in rows
+        ],
+        "next_cursor": next_cursor,
+        "total": total,
+    }
+
+
 # ─── Schools ──────────────────────────────────────────────────────────────────
 
 @router.get("/schools")
