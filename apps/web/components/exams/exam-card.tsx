@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { GraduationCap, Clock, Users } from "lucide-react";
+import { GraduationCap, Clock, Users, Pencil } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAssignExam } from "@/lib/hooks/use-exams";
@@ -109,13 +109,19 @@ export function ExamCard({ exam, groupId, canAssign }: { exam: Exam; groupId: st
         </Link>
 
         {canAssign && exam.status === "draft" && (
-          <div className="px-5 pb-4 pt-0">
+          <div className="px-5 pb-4 pt-0 flex gap-2">
+            <Link
+              href={`/groups/${groupId}/exams/${exam.id}/edit`}
+              className="flex-1 flex items-center gap-1.5 justify-center px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 hover:bg-slate-50 font-medium transition-colors"
+            >
+              <Pencil size={11} /> Edit questions
+            </Link>
             <button
               type="button"
               onClick={() => setAssigning(true)}
-              className="flex items-center gap-2 w-full justify-center px-3 py-1.5 rounded-lg border border-accent/30 text-xs text-accent hover:bg-accent/5 font-medium transition-colors"
+              className="flex-1 flex items-center gap-1.5 justify-center px-3 py-1.5 rounded-lg border border-accent/30 text-xs text-accent hover:bg-accent/5 font-medium transition-colors"
             >
-              <Users size={12} /> Assigner aux élèves
+              <Users size={11} /> Assign
             </button>
           </div>
         )}

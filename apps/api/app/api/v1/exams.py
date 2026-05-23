@@ -1,9 +1,10 @@
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import and_, delete as sa_delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -84,6 +85,104 @@ class SaveAnswersRequest(BaseModel):
 
 class SubmitRequest(BaseModel):
     answers: dict[str, str]
+
+
+_VALID_Q_TYPES = frozenset({
+    "mcq_single", "mcq_multiple", "true_false", "fill_blank",
+    "open_calculation", "essay", "document_analysis",
+})
+_VALID_DIFFICULTIES = frozenset({"easy", "medium", "hard"})
+
+
+class QuestionCreate(BaseModel):
+    type: str = "mcq_single"
+    content: str = Field(min_length=1)
+    options: dict[str, str] | None = None
+    correct_answer: str | None = None
+    explanation: str | None = None
+    difficulty: str = "medium"
+    points: float = Field(default=1.0, ge=0)
+    order_index: int | None = None
+
+    @field_validator("type")
+    @classmethod
+    def _valid_type(cls, v: str) -> str:
+        if v not in _VALID_Q_TYPES:
+            raise ValueError(f"type must be one of {sorted(_VALID_Q_TYPES)}")
+        return v
+
+    @field_validator("difficulty")
+    @classmethod
+    def _valid_diff(cls, v: str) -> str:
+        if v not in _VALID_DIFFICULTIES:
+            raise ValueError("difficulty must be easy | medium | hard")
+        return v
+
+
+class QuestionUpdate(BaseModel):
+    content: str | None = None
+    options: dict[str, str] | None = None
+    correct_answer: str | None = None
+    explanation: str | None = None
+    difficulty: str | None = None
+    points: float | None = Field(default=None, ge=0)
+    order_index: int | None = None
+
+    @field_validator("difficulty")
+    @classmethod
+    def _valid_diff(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_DIFFICULTIES:
+            raise ValueError("difficulty must be easy | medium | hard")
+        return v
+
+
+# ── question-level helpers ────────────────────────────────────────────────────
+
+async def _require_teacher_editable(
+    group_id: str, exam_id: str, user_id: str, db: AsyncSession
+) -> tuple[GroupMember, "Exam"]:
+    """Assert teacher/owner role and that no student has submitted the exam yet."""
+    membership = await _require_group_member(group_id, user_id, db)
+    if membership.role not in ("owner", "teacher"):
+        raise HTTPException(status_code=403, detail="Owner or teacher role required")
+    exam = await _require_exam_in_group(exam_id, group_id, db)
+    submitted = (await db.execute(
+        select(func.count(ExamSession.id)).where(
+            ExamSession.exam_id == exam_id,
+            ExamSession.submitted_at.is_not(None),
+        )
+    )).scalar_one()
+    if submitted > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot edit questions after students have submitted answers",
+        )
+    return membership, exam
+
+
+async def _sync_total_points(exam_id: str, db: AsyncSession) -> float:
+    total = (await db.execute(
+        select(func.coalesce(func.sum(Question.points), 0.0)).where(Question.exam_id == exam_id)
+    )).scalar_one()
+    await db.execute(
+        update(Exam).where(Exam.id == exam_id).values(total_points=float(total))
+    )
+    return float(total)
+
+
+def _q_dict(q: "Question") -> dict:
+    return {
+        "id": q.id,
+        "exam_id": q.exam_id,
+        "type": q.type,
+        "content": q.content,
+        "options": q.options,
+        "correct_answer": q.correct_answer,
+        "explanation": q.explanation,
+        "difficulty": q.difficulty,
+        "points": q.points,
+        "order_index": q.order_index,
+    }
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
@@ -263,6 +362,7 @@ async def get_exam(
         "title": exam.title,
         "status": exam.status,
         "config": exam.config,
+        "total_points": exam.total_points,
         "attempt_limit": exam.attempt_limit,
         "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
         "ends_at": exam.ends_at.isoformat() if exam.ends_at else None,
@@ -643,3 +743,159 @@ async def upload_construction_photo(
     await db.commit()
 
     return {"status": "uploaded", "question_id": question_id}
+
+
+# ── question CRUD (teacher / owner only) ─────────────────────────────────────
+
+@router.post(
+    "/groups/{group_id}/exams/{exam_id}/questions",
+    responses={
+        403: {"description": "Owner or teacher role required"},
+        404: {"description": "Exam not found"},
+        409: {"description": "Exam already has submitted sessions"},
+    },
+)
+async def add_question(
+    group_id: str,
+    exam_id: str,
+    body: QuestionCreate,
+    current_user: CurrentUser,
+    db: DB,
+):
+    await _require_teacher_editable(group_id, exam_id, current_user.id, db)
+
+    max_order = (await db.execute(
+        select(func.coalesce(func.max(Question.order_index), -1)).where(Question.exam_id == exam_id)
+    )).scalar_one()
+
+    question = Question(
+        id=str(uuid.uuid4()),
+        exam_id=exam_id,
+        type=body.type,
+        content=body.content,
+        options=body.options or {},
+        correct_answer=body.correct_answer or "",
+        explanation=body.explanation or "",
+        source_passage="",
+        difficulty=body.difficulty,
+        points=body.points,
+        order_index=body.order_index if body.order_index is not None else int(max_order) + 1,
+    )
+    db.add(question)
+    await db.flush()
+    await _sync_total_points(exam_id, db)
+    await db.commit()
+    await db.refresh(question)
+    return _q_dict(question)
+
+
+@router.patch(
+    "/groups/{group_id}/exams/{exam_id}/questions/{question_id}",
+    responses={
+        403: {"description": "Owner or teacher role required"},
+        404: {"description": "Question not found"},
+        409: {"description": "Exam already has submitted sessions"},
+    },
+)
+async def update_question(
+    group_id: str,
+    exam_id: str,
+    question_id: str,
+    body: QuestionUpdate,
+    current_user: CurrentUser,
+    db: DB,
+):
+    await _require_teacher_editable(group_id, exam_id, current_user.id, db)
+
+    question = (await db.execute(
+        select(Question).where(Question.id == question_id, Question.exam_id == exam_id)
+    )).scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(question, field, value)
+
+    await db.flush()
+    await _sync_total_points(exam_id, db)
+    await db.commit()
+    await db.refresh(question)
+    return _q_dict(question)
+
+
+@router.delete(
+    "/groups/{group_id}/exams/{exam_id}/questions/{question_id}",
+    responses={
+        403: {"description": "Owner or teacher role required"},
+        404: {"description": "Question not found"},
+        409: {"description": "Exam already has submitted sessions"},
+    },
+)
+async def delete_question(
+    group_id: str,
+    exam_id: str,
+    question_id: str,
+    current_user: CurrentUser,
+    db: DB,
+):
+    await _require_teacher_editable(group_id, exam_id, current_user.id, db)
+
+    question = (await db.execute(
+        select(Question).where(Question.id == question_id, Question.exam_id == exam_id)
+    )).scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    await db.execute(sa_delete(Question).where(Question.id == question_id))
+    await db.flush()
+    total = await _sync_total_points(exam_id, db)
+    await db.commit()
+    return {"message": "Question deleted", "total_points": total}
+
+
+@router.post(
+    "/groups/{group_id}/exams/{exam_id}/questions/{question_id}/duplicate",
+    responses={
+        403: {"description": "Owner or teacher role required"},
+        404: {"description": "Question not found"},
+        409: {"description": "Exam already has submitted sessions"},
+    },
+)
+async def duplicate_question(
+    group_id: str,
+    exam_id: str,
+    question_id: str,
+    current_user: CurrentUser,
+    db: DB,
+):
+    await _require_teacher_editable(group_id, exam_id, current_user.id, db)
+
+    src = (await db.execute(
+        select(Question).where(Question.id == question_id, Question.exam_id == exam_id)
+    )).scalar_one_or_none()
+    if not src:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    max_order = (await db.execute(
+        select(func.coalesce(func.max(Question.order_index), -1)).where(Question.exam_id == exam_id)
+    )).scalar_one()
+
+    copy = Question(
+        id=str(uuid.uuid4()),
+        exam_id=exam_id,
+        type=src.type,
+        content=f"[Copy] {src.content}",
+        options=src.options,
+        correct_answer=src.correct_answer,
+        explanation=src.explanation,
+        source_passage=src.source_passage,
+        difficulty=src.difficulty,
+        points=src.points,
+        order_index=int(max_order) + 1,
+    )
+    db.add(copy)
+    await db.flush()
+    await _sync_total_points(exam_id, db)
+    await db.commit()
+    await db.refresh(copy)
+    return _q_dict(copy)

@@ -37,11 +37,23 @@ export interface Exam {
   title: string;
   status: "draft" | "assigned" | "closed";
   config: Record<string, unknown>;
+  total_points?: number;
   attempt_limit: number;
   starts_at: string | null;
   ends_at: string | null;
   created_at: string;
   questions?: Question[];
+}
+
+export interface QuestionPayload {
+  type?: string;
+  content?: string;
+  options?: Record<string, string> | null;
+  correct_answer?: string | null;
+  explanation?: string | null;
+  difficulty?: string;
+  points?: number;
+  order_index?: number;
 }
 
 export interface Correction {
@@ -171,6 +183,54 @@ export function useAssignExam(groupId: string, examId: string) {
       return res.data as Exam;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["exams", groupId] }),
+  });
+}
+
+export function useAddQuestion(groupId: string, examId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: QuestionPayload) => {
+      const res = await api.post(`/api/v1/groups/${groupId}/exams/${examId}/questions`, data);
+      return res.data as Question;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exam", groupId, examId] }),
+  });
+}
+
+export function useUpdateQuestion(groupId: string, examId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ questionId, data }: { questionId: string; data: QuestionPayload }) => {
+      const res = await api.patch(
+        `/api/v1/groups/${groupId}/exams/${examId}/questions/${questionId}`,
+        data
+      );
+      return res.data as Question;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exam", groupId, examId] }),
+  });
+}
+
+export function useDeleteQuestion(groupId: string, examId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (questionId: string) => {
+      await api.delete(`/api/v1/groups/${groupId}/exams/${examId}/questions/${questionId}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exam", groupId, examId] }),
+  });
+}
+
+export function useDuplicateQuestion(groupId: string, examId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (questionId: string) => {
+      const res = await api.post(
+        `/api/v1/groups/${groupId}/exams/${examId}/questions/${questionId}/duplicate`
+      );
+      return res.data as Question;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exam", groupId, examId] }),
   });
 }
 
