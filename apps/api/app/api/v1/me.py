@@ -125,6 +125,7 @@ async def _build_account(user: User, db: AsyncSession) -> dict:
             "files_uploaded_total": files_total,
         },
         "subscription": subscription,
+        "language": getattr(user, "language", "fr"),
         "notifications": {
             "email_enabled": user.notif_email,
             "whatsapp_enabled": user.notif_whatsapp,
@@ -147,9 +148,13 @@ async def get_account(current_user: CurrentUser, db: DB):
     return await _build_account(current_user, db)
 
 
+_ALLOWED_LANGUAGES = {"ar", "fr"}
+
+
 class UpdateAccountRequest(BaseModel):
     full_name: str | None = None
     whatsapp_number: str | None = None
+    language: str | None = None
 
 
 @router.patch("/account")
@@ -173,6 +178,11 @@ async def update_account(body: UpdateAccountRequest, current_user: CurrentUser, 
             )
         else:
             user.wa_number = body.whatsapp_number
+
+    if body.language is not None:
+        if body.language not in _ALLOWED_LANGUAGES:
+            raise HTTPException(status_code=422, detail=f"language must be one of: {', '.join(sorted(_ALLOWED_LANGUAGES))}")
+        user.language = body.language
 
     await db.commit()
     await db.refresh(user)

@@ -16,7 +16,7 @@ from app.core.middleware import RequestIDMiddleware
 
 limiter = Limiter(key_func=get_remote_address)
 import app.models  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
-from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths, me, slides, organizations, live_quiz, concepts, webhooks, search
+from app.api.v1 import auth, groups, files, chat, exams, flashcards, rooms, analytics, teacher, admin, notifications, learning_paths, me, slides, organizations, live_quiz, concepts, webhooks, search, bac
 
 
 class CloudWatchJsonFormatter(logging.Formatter):
@@ -128,6 +128,7 @@ app.include_router(live_quiz.router, prefix=API_V1_PREFIX)
 app.include_router(concepts.router, prefix=API_V1_PREFIX)
 app.include_router(webhooks.router, prefix=API_V1_PREFIX)
 app.include_router(search.router, prefix=API_V1_PREFIX)
+app.include_router(bac.router, prefix=API_V1_PREFIX)
 
 
 @app.get("/health")

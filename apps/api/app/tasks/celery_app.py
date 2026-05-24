@@ -45,6 +45,7 @@ celery_app = Celery(
         "app.tasks.notification_tasks",
         "app.tasks.slide_tasks",
         "app.tasks.analytics_tasks",
+        "app.tasks.bac_tasks",
     ],
 )
 
@@ -62,6 +63,7 @@ celery_app.conf.update(
         "app.tasks.notification_tasks.*": {"queue": "notifications"},
         "app.tasks.slide_tasks.*": {"queue": "slides"},
         "app.tasks.analytics_tasks.*": {"queue": "analytics"},
+        "app.tasks.bac_tasks.*": {"queue": "files"},
     },
     beat_schedule={
         "check-exam-deadlines": {

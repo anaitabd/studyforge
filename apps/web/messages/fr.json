@@ -1,0 +1,138 @@
+{
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "groups": "Mes groupes",
+    "rooms": "Salles d'étude",
+    "flashcards": "Cartes mémoire",
+    "analytics": "Analytique",
+    "exams": "Examens",
+    "bac": "Bac Prépa",
+    "admin": "Administration"
+  },
+  "sidebar": {
+    "teacher_section": "Enseignant",
+    "platform_section": "Plateforme",
+    "upgrade": "Améliorer →"
+  },
+  "mobile_nav": {
+    "groups": "Groupes",
+    "rooms": "Salles",
+    "flashcards": "Cartes",
+    "exams": "Examens",
+    "profile": "Profil"
+  },
+  "breadcrumbs": {
+    "dashboard": "Tableau de bord",
+    "groups": "Groupes",
+    "rooms": "Salles d'étude",
+    "flashcards": "Cartes mémoire",
+    "exams": "Examens",
+    "analytics": "Analytique",
+    "account": "Compte",
+    "admin": "Administration",
+    "chat": "Chat IA",
+    "files": "Fichiers",
+    "settings": "Paramètres",
+    "pricing": "Tarification",
+    "join": "Rejoindre",
+    "flashcard": "Carte mémoire",
+    "exam": "Examen",
+    "group": "Groupe",
+    "room": "Salle",
+    "health": "Santé",
+    "upgrade": "Améliorer",
+    "features": "Fonctionnalités",
+    "faq": "FAQ",
+    "bac": "Bac Prépa",
+    "practice": "Entraînement",
+    "results": "Résultats"
+  },
+  "account": {
+    "title": "Compte",
+    "subtitle": "Gérez votre profil, abonnement et préférences.",
+    "load_error": "Impossible de charger les données du compte.",
+    "tabs": {
+      "profile": "Profil",
+      "subscription": "Abonnement",
+      "usage": "Utilisation",
+      "notifications": "Notifications",
+      "language": "Langue"
+    },
+    "profile": {
+      "full_name": "Nom complet",
+      "whatsapp": "Numéro WhatsApp",
+      "whatsapp_format": "(E.164, ex. +212612345678)",
+      "email_label": "E-mail",
+      "email_note": "Modifiez dans les paramètres Clerk",
+      "role_label": "Rôle",
+      "plan_label": "Plan",
+      "member_since": "Membre depuis",
+      "school_label": "École",
+      "save": "Enregistrer",
+      "saving": "Enregistrement…",
+      "saved": "Profil mis à jour",
+      "error": "Échec de la mise à jour",
+      "name_placeholder": "Votre nom complet",
+      "wa_placeholder": "+212612345678"
+    },
+    "subscription": {
+      "current_plan": "Plan actuel",
+      "free_desc": "Vous êtes sur le plan Gratuit. Améliorez votre plan pour débloquer plus de messages IA, d'examens et de groupes.",
+      "upgrade_cta": "Passer au Personal — 8 $/mois",
+      "school_managed": "Votre plan est géré par {school}. Contactez votre administrateur pour les questions de facturation.",
+      "renews_on": "Renouvellement le {date}.",
+      "ends_on": "Votre plan prend fin le {date}.",
+      "cancel_warning": "Votre plan est paramétré pour s'annuler à la fin de la période de facturation.",
+      "manage_paypal": "Gérer l'abonnement PayPal",
+      "update_payment": "Mettre à jour le paiement sur PayPal",
+      "resubscribe": "Se réabonner",
+      "payment_failed": "Paiement échoué",
+      "payment_past_due": "Votre paiement est en retard. Mettez à jour votre mode de paiement pour conserver l'accès.",
+      "status_free": "gratuit"
+    },
+    "usage": {
+      "chat_messages": "Messages IA",
+      "chat_sublabel": "Réinitialisation quotidienne à minuit UTC",
+      "exams_generated": "Examens générés",
+      "exams_sublabel": "Réinitialisation le 1er de chaque mois",
+      "groups_owned": "Groupes possédés",
+      "groups_sublabel": "Améliorez pour en créer davantage",
+      "files_uploaded": "Fichiers téléchargés",
+      "files_sublabel": "Total — sans limite"
+    },
+    "notifications": {
+      "in_app": "Notifications in-app",
+      "in_app_desc": "Afficher alertes et badges dans l'application",
+      "email": "Notifications par e-mail",
+      "email_desc": "Recevoir des mises à jour dans votre boîte",
+      "whatsapp": "Notifications WhatsApp",
+      "whatsapp_desc": "Recevoir des messages sur WhatsApp",
+      "school_plan_required": "Plan École requis",
+      "error": "Échec de la mise à jour des notifications"
+    },
+    "language": {
+      "title": "Langue de l'interface",
+      "subtitle": "Choisissez la langue d'affichage de StudyForge.",
+      "fr_label": "Français",
+      "ar_label": "العربية",
+      "saved": "Langue mise à jour",
+      "error": "Échec du changement de langue"
+    },
+    "danger": {
+      "title": "Zone de danger",
+      "description": "Supprimer définitivement votre compte. Toutes les données personnelles seront anonymisées et ne pourront pas être récupérées.",
+      "delete_btn": "Supprimer le compte",
+      "confirm_prompt": "Tapez DELETE pour confirmer :",
+      "confirm_placeholder": "DELETE",
+      "confirm_btn": "Confirmer la suppression",
+      "confirming_btn": "Suppression…",
+      "cancel": "Annuler",
+      "success": "Compte supprimé",
+      "error": "Échec de la suppression"
+    }
+  },
+  "errors": {
+    "load_failed": "Impossible de charger les données.",
+    "retry": "Réessayer"
+  }
+}

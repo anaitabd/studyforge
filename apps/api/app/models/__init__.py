@@ -22,6 +22,7 @@ from app.models.gamification import UserXP, UserLevel, Badge, UserBadge, DailyCh
 from app.models.live_quiz import LiveQuiz, LiveQuizParticipant, LiveQuizAnswer
 from app.models.knowledge_graph import KnowledgeConcept, ConceptRelation
 from app.models.failed_task import FailedTask
+from app.models.bac import BacPaper, BacQuestion, BacPracticeSession
 
 __all__ = [
     "User", "School",
@@ -43,4 +44,5 @@ __all__ = [
     "LiveQuiz", "LiveQuizParticipant", "LiveQuizAnswer",
     "KnowledgeConcept", "ConceptRelation",
     "FailedTask",
+    "BacPaper", "BacQuestion", "BacPracticeSession",
 ]

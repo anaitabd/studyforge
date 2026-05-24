@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { useTranslations } from "next-intl";
 import {
   User,
   CreditCard,
@@ -11,6 +12,7 @@ import {
   Trash2,
   AlertTriangle,
   ExternalLink,
+  Globe,
 } from "lucide-react";
 import {
   useAccount,
@@ -20,30 +22,35 @@ import {
   type AccountData,
   type AccountNotifications,
 } from "@/hooks/use-account";
+import { useLocale, type AppLocale } from "@/hooks/use-locale";
 
-type Tab = "profile" | "subscription" | "usage" | "notifications";
-
-const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
-  { key: "profile", label: "Profile", icon: User },
-  { key: "subscription", label: "Subscription", icon: CreditCard },
-  { key: "usage", label: "Usage", icon: BarChart2 },
-  { key: "notifications", label: "Notifications", icon: Bell },
-];
+type Tab = "profile" | "subscription" | "usage" | "notifications" | "language";
 
 export function AccountPageClient() {
   const [tab, setTab] = useState<Tab>("profile");
   const { data: account, isLoading, isError, refetch } = useAccount();
+  const t = useTranslations("account");
+  const tErrors = useTranslations("errors");
+  const { isRTL } = useLocale();
+
+  const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
+    { key: "profile", label: t("tabs.profile"), icon: User },
+    { key: "subscription", label: t("tabs.subscription"), icon: CreditCard },
+    { key: "usage", label: t("tabs.usage"), icon: BarChart2 },
+    { key: "notifications", label: t("tabs.notifications"), icon: Bell },
+    { key: "language", label: t("tabs.language"), icon: Globe },
+  ];
 
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <AlertTriangle size={32} className="text-destructive mb-4" />
-        <p className="text-slate-600 mb-4">Failed to load account data.</p>
+        <p className="text-slate-600 mb-4">{t("load_error")}</p>
         <button
           onClick={() => refetch()}
           className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90"
         >
-          Retry
+          {tErrors("retry")}
         </button>
       </div>
     );
@@ -52,10 +59,8 @@ export function AccountPageClient() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-sora text-3xl font-bold text-primary">Account</h1>
-        <p className="text-slate-500 mt-1 text-sm">
-          Manage your profile, subscription, and preferences.
-        </p>
+        <h1 className="font-sora text-3xl font-bold text-primary">{t("title")}</h1>
+        <p className="text-slate-500 mt-1 text-sm">{t("subtitle")}</p>
       </div>
 
       {/* Mobile: select dropdown */}
@@ -64,10 +69,11 @@ export function AccountPageClient() {
           value={tab}
           onChange={(e) => setTab(e.target.value as Tab)}
           className="input w-full"
+          dir={isRTL ? "rtl" : "ltr"}
         >
-          {TABS.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.label}
+          {TABS.map((tt) => (
+            <option key={tt.key} value={tt.key}>
+              {tt.label}
             </option>
           ))}
         </select>
@@ -96,6 +102,7 @@ export function AccountPageClient() {
         {tab === "subscription" && <SubscriptionTab account={account} isLoading={isLoading} />}
         {tab === "usage" && <UsageTab account={account} isLoading={isLoading} />}
         {tab === "notifications" && <NotificationsTab account={account} isLoading={isLoading} />}
+        {tab === "language" && <LanguageTab account={account} isLoading={isLoading} />}
       </div>
 
       <DangerZone />
@@ -115,6 +122,7 @@ function ProfileTab({
   const [name, setName] = useState("");
   const [wa, setWa] = useState("");
   const { mutate: updateAccount, isPending } = useUpdateAccount();
+  const t = useTranslations("account.profile");
 
   useEffect(() => {
     if (account) {
@@ -135,16 +143,14 @@ function ProfileTab({
     updateAccount(
       { full_name: name, whatsapp_number: wa || null },
       {
-        onSuccess: () => toast.success("Profile updated"),
-        onError: (err: unknown) =>
-          toast.error((err as Error).message ?? "Failed to update profile"),
+        onSuccess: () => toast.success(t("saved")),
+        onError: (err: unknown) => toast.error((err as Error).message ?? t("error")),
       }
     );
   };
 
   return (
     <div className="space-y-6 max-w-xl">
-      {/* Avatar + name row */}
       <div className="flex items-center gap-4">
         {isLoading ? (
           <div className="w-16 h-16 rounded-full bg-slate-100 animate-pulse shrink-0" />
@@ -171,10 +177,9 @@ function ProfileTab({
         </div>
       </div>
 
-      {/* Editable fields */}
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Full name</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">{t("full_name")}</label>
           {isLoading ? (
             <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
           ) : (
@@ -182,14 +187,14 @@ function ProfileTab({
               className="input w-full"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Your full name"
+              placeholder={t("name_placeholder")}
             />
           )}
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            WhatsApp number{" "}
-            <span className="text-slate-400 font-normal">(E.164, e.g. +12025550100)</span>
+            {t("whatsapp")}{" "}
+            <span className="text-slate-400 font-normal">{t("whatsapp_format")}</span>
           </label>
           {isLoading ? (
             <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
@@ -198,33 +203,24 @@ function ProfileTab({
               className="input w-full"
               value={wa}
               onChange={(e) => setWa(e.target.value)}
-              placeholder="+12025550100"
+              placeholder={t("wa_placeholder")}
+              dir="ltr"
             />
           )}
         </div>
       </div>
 
-      {/* Read-only metadata */}
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+        <ReadOnlyRow label={t("email_label")} value={account?.email} note={t("email_note")} loading={isLoading} />
+        <ReadOnlyRow label={t("role_label")} value={account?.role} loading={isLoading} badge />
+        <ReadOnlyRow label={t("plan_label")} value={account?.plan} loading={isLoading} badge />
         <ReadOnlyRow
-          label="Email"
-          value={account?.email}
-          note="Change this in Clerk account settings"
-          loading={isLoading}
-        />
-        <ReadOnlyRow label="Role" value={account?.role} loading={isLoading} badge />
-        <ReadOnlyRow label="Plan" value={account?.plan} loading={isLoading} badge />
-        <ReadOnlyRow
-          label="Member since"
-          value={
-            account?.created_at
-              ? new Date(account.created_at).toLocaleDateString()
-              : undefined
-          }
+          label={t("member_since")}
+          value={account?.created_at ? new Date(account.created_at).toLocaleDateString() : undefined}
           loading={isLoading}
         />
         {account?.school_name && (
-          <ReadOnlyRow label="School" value={account.school_name} loading={isLoading} />
+          <ReadOnlyRow label={t("school_label")} value={account.school_name} loading={isLoading} />
         )}
       </div>
 
@@ -233,7 +229,7 @@ function ProfileTab({
         disabled={isPending || isLoading}
         className="px-5 py-2.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {isPending ? "Saving…" : "Save changes"}
+        {isPending ? t("saving") : t("save")}
       </button>
     </div>
   );
@@ -262,7 +258,7 @@ function ReadOnlyRow({
           {value ?? "—"}
         </span>
       ) : (
-        <div className="text-right">
+        <div className="ltr:text-right rtl:text-left">
           <span className="text-slate-700">{value ?? "—"}</span>
           {note && <p className="text-[11px] text-slate-400 mt-0.5">{note}</p>}
         </div>
@@ -280,6 +276,8 @@ function SubscriptionTab({
   account?: AccountData;
   isLoading: boolean;
 }) {
+  const t = useTranslations("account.subscription");
+
   if (isLoading) {
     return (
       <div className="space-y-4 max-w-xl">
@@ -300,10 +298,8 @@ function SubscriptionTab({
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 flex items-start gap-3">
           <AlertTriangle size={18} className="text-destructive shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-destructive">Payment failed</p>
-            <p className="text-sm text-slate-600 mt-0.5">
-              Your payment is past due. Update your payment method to keep access.
-            </p>
+            <p className="text-sm font-medium text-destructive">{t("payment_failed")}</p>
+            <p className="text-sm text-slate-600 mt-0.5">{t("payment_past_due")}</p>
           </div>
         </div>
       )}
@@ -312,7 +308,7 @@ function SubscriptionTab({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Current plan
+              {t("current_plan")}
             </p>
             <h2 className="font-sora text-2xl font-bold text-primary capitalize mt-1">{plan}</h2>
           </div>
@@ -325,28 +321,25 @@ function SubscriptionTab({
                 : "bg-slate-100 text-slate-500"
             }`}
           >
-            {sub.status === "none" ? "free" : sub.status}
+            {sub.status === "none" ? t("status_free") : sub.status}
           </span>
         </div>
 
         {plan === "free" && (
           <div className="space-y-3">
-            <p className="text-sm text-slate-600">
-              You are on the Free plan. Upgrade to unlock more AI messages, exams, and groups.
-            </p>
+            <p className="text-sm text-slate-600">{t("free_desc")}</p>
             <a
               href="/upgrade"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90"
             >
-              Upgrade to Personal — $8/mo
+              {t("upgrade_cta")}
             </a>
           </div>
         )}
 
         {plan === "school" && (
           <p className="text-sm text-slate-600">
-            Your plan is managed by {schoolName ?? "your school"}. Contact your administrator for
-            billing questions.
+            {t("school_managed", { school: schoolName ?? "your school" })}
           </p>
         )}
 
@@ -355,13 +348,13 @@ function SubscriptionTab({
             {sub.current_period_end && (
               <p className="text-sm text-slate-600">
                 {sub.cancel_at_period_end
-                  ? `Your plan ends on ${new Date(sub.current_period_end).toLocaleDateString()}.`
-                  : `Renews on ${new Date(sub.current_period_end).toLocaleDateString()}.`}
+                  ? t("ends_on", { date: new Date(sub.current_period_end).toLocaleDateString() })
+                  : t("renews_on", { date: new Date(sub.current_period_end).toLocaleDateString() })}
               </p>
             )}
             {sub.cancel_at_period_end && (
               <div className="rounded-lg border border-amber/30 bg-amber/5 p-3 text-sm text-slate-700">
-                Your plan is set to cancel at the end of the billing period.
+                {t("cancel_warning")}
               </div>
             )}
             <a
@@ -371,7 +364,7 @@ function SubscriptionTab({
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50"
             >
               <ExternalLink size={14} />
-              Manage PayPal subscription
+              {t("manage_paypal")}
             </a>
           </div>
         )}
@@ -379,13 +372,13 @@ function SubscriptionTab({
         {sub.status === "canceled" && sub.current_period_end && (
           <div className="space-y-3">
             <p className="text-sm text-slate-600">
-              Your plan ended on {new Date(sub.current_period_end).toLocaleDateString()}.
+              {t("ends_on", { date: new Date(sub.current_period_end).toLocaleDateString() })}
             </p>
             <a
               href="/pricing"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90"
             >
-              Re-subscribe
+              {t("resubscribe")}
             </a>
           </div>
         )}
@@ -398,7 +391,7 @@ function SubscriptionTab({
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-white text-sm font-medium hover:bg-destructive/90"
           >
             <ExternalLink size={14} />
-            Update payment on PayPal
+            {t("update_payment")}
           </a>
         )}
       </div>
@@ -415,6 +408,8 @@ function UsageTab({
   account?: AccountData;
   isLoading: boolean;
 }) {
+  const t = useTranslations("account.usage");
+
   if (isLoading) {
     return (
       <div className="space-y-4 max-w-xl">
@@ -431,30 +426,27 @@ function UsageTab({
   return (
     <div className="space-y-4 max-w-xl">
       <UsageBar
-        label="AI chat messages"
-        sublabel="Resets daily at midnight UTC"
+        label={t("chat_messages")}
+        sublabel={t("chat_sublabel")}
         current={u.chat_messages_today}
         limit={u.chat_messages_limit_day}
-        tooltip="You can send this many AI messages per day."
       />
       <UsageBar
-        label="Exams generated"
-        sublabel="Resets on the 1st of each month"
+        label={t("exams_generated")}
+        sublabel={t("exams_sublabel")}
         current={u.exams_generated_month}
         limit={u.exams_limit_month}
-        tooltip="Number of AI-generated exams this month."
       />
       <UsageBar
-        label="Groups owned"
-        sublabel="Upgrade to create more"
+        label={t("groups_owned")}
+        sublabel={t("groups_sublabel")}
         current={u.groups_count}
         limit={u.groups_limit}
-        tooltip="You can own this many groups on your current plan."
       />
       <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-700">Files uploaded</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Total — no limit</p>
+          <p className="text-sm font-medium text-slate-700">{t("files_uploaded")}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{t("files_sublabel")}</p>
         </div>
         <span className="font-sora font-bold text-primary text-2xl">
           {u.files_uploaded_total}
@@ -469,26 +461,23 @@ function UsageBar({
   sublabel,
   current,
   limit,
-  tooltip,
 }: {
   label: string;
   sublabel: string;
   current: number;
   limit: number;
-  tooltip: string;
 }) {
   const pct = limit > 0 ? Math.min(100, Math.round((current / limit) * 100)) : 0;
-  const barColor =
-    pct > 90 ? "bg-destructive" : pct > 70 ? "bg-amber" : "bg-teal";
+  const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-amber" : "bg-teal";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4" title={tooltip}>
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between mb-2">
         <div>
           <p className="text-sm font-medium text-slate-700">{label}</p>
           <p className="text-[11px] text-slate-400 mt-0.5">{sublabel}</p>
         </div>
-        <span className="text-sm font-medium text-slate-700 shrink-0 ml-4">
+        <span className="text-sm font-medium text-slate-700 shrink-0 ltr:ml-4 rtl:mr-4">
           {current} / {limit}
         </span>
       </div>
@@ -512,6 +501,7 @@ function NotificationsTab({
   isLoading: boolean;
 }) {
   const { mutate: updateNotifs } = useUpdateNotifications();
+  const t = useTranslations("account.notifications");
 
   if (isLoading) {
     return (
@@ -534,8 +524,7 @@ function NotificationsTab({
     updateNotifs(
       { [key]: !notifs[key] },
       {
-        onError: (err: unknown) =>
-          toast.error((err as Error).message ?? "Failed to update notifications"),
+        onError: (err: unknown) => toast.error((err as Error).message ?? t("error")),
       }
     );
   };
@@ -543,24 +532,24 @@ function NotificationsTab({
   return (
     <div className="space-y-3 max-w-xl">
       <NotifRow
-        label="In-app notifications"
-        description="Show alerts and badges inside the app"
+        label={t("in_app")}
+        description={t("in_app_desc")}
         enabled={notifs.in_app_enabled}
         onToggle={() => toggle("in_app_enabled")}
       />
       <NotifRow
-        label="Email notifications"
-        description="Receive updates to your inbox"
+        label={t("email")}
+        description={t("email_desc")}
         enabled={notifs.email_enabled}
         onToggle={() => toggle("email_enabled")}
       />
       <NotifRow
-        label="WhatsApp notifications"
-        description="Get messages on WhatsApp"
+        label={t("whatsapp")}
+        description={t("whatsapp_desc")}
         enabled={notifs.whatsapp_enabled}
         onToggle={() => toggle("whatsapp_enabled")}
         disabled={!canWhatsApp}
-        badge={!canWhatsApp ? "School plan required" : undefined}
+        badge={!canWhatsApp ? t("school_plan_required") : undefined}
       />
     </div>
   );
@@ -618,6 +607,107 @@ function NotifRow({
   );
 }
 
+// ─── Language ─────────────────────────────────────────────────────────────────
+
+function LanguageTab({
+  account,
+  isLoading,
+}: {
+  account?: AccountData;
+  isLoading: boolean;
+}) {
+  const t = useTranslations("account.language");
+  const { locale, setLocale } = useLocale();
+  const { mutate: updateAccount } = useUpdateAccount();
+  const [switching, setSwitching] = useState(false);
+
+  const handleSwitch = async (newLocale: AppLocale) => {
+    if (newLocale === locale || switching) return;
+    setSwitching(true);
+    try {
+      // Persist to profile
+      updateAccount({ language: newLocale });
+      // Switch cookie + re-render
+      await setLocale(newLocale);
+      toast.success(t("saved"));
+    } catch {
+      toast.error(t("error"));
+      setSwitching(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4 max-w-xl">
+        <div className="h-32 rounded-xl bg-slate-100 animate-pulse" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-xl">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-700">{t("title")}</h3>
+        <p className="text-[13px] text-slate-500 mt-0.5">{t("subtitle")}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <LanguageOption
+          code="fr"
+          label={t("fr_label")}
+          flag="🇲🇦"
+          selected={locale === "fr"}
+          disabled={switching}
+          onSelect={() => handleSwitch("fr")}
+        />
+        <LanguageOption
+          code="ar"
+          label={t("ar_label")}
+          flag="🇲🇦"
+          selected={locale === "ar"}
+          disabled={switching}
+          onSelect={() => handleSwitch("ar")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function LanguageOption({
+  code,
+  label,
+  flag,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  code: string;
+  label: string;
+  flag: string;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      disabled={disabled}
+      className={`rounded-xl border-2 p-4 flex flex-col items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+        selected
+          ? "border-accent bg-accent/5 text-accent"
+          : "border-slate-200 hover:border-slate-300 text-slate-700"
+      }`}
+    >
+      <span className="text-2xl">{flag}</span>
+      <span className="text-sm font-semibold">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider font-medium opacity-60">{code}</span>
+      {selected && (
+        <span className="w-2 h-2 rounded-full bg-accent" />
+      )}
+    </button>
+  );
+}
+
 // ─── Danger zone ──────────────────────────────────────────────────────────────
 
 function DangerZone() {
@@ -625,15 +715,15 @@ function DangerZone() {
   const [confirmText, setConfirmText] = useState("");
   const router = useRouter();
   const { mutate: deleteAccount, isPending } = useDeleteAccount();
+  const t = useTranslations("account.danger");
 
   const handleDelete = () => {
     deleteAccount(confirmText, {
       onSuccess: () => {
-        toast.success("Account deleted");
+        toast.success(t("success"));
         router.push("/sign-in");
       },
-      onError: (err: unknown) =>
-        toast.error((err as Error).message ?? "Failed to delete account"),
+      onError: (err: unknown) => toast.error((err as Error).message ?? t("error")),
     });
   };
 
@@ -641,35 +731,32 @@ function DangerZone() {
     <div className="rounded-xl border-2 border-destructive/30 bg-white p-6 space-y-4 max-w-xl">
       <div className="flex items-center gap-3">
         <Trash2 size={18} className="text-destructive" />
-        <h3 className="font-sora font-semibold text-destructive">Danger zone</h3>
+        <h3 className="font-sora font-semibold text-destructive">{t("title")}</h3>
       </div>
-      <p className="text-sm text-slate-600">
-        Permanently delete your account. All personal data will be anonymized and cannot be
-        recovered.
-      </p>
+      <p className="text-sm text-slate-600">{t("description")}</p>
 
       {step === "idle" ? (
         <button
           onClick={() => setStep("confirming")}
           className="px-4 py-2 rounded-lg border border-destructive text-destructive text-sm font-medium hover:bg-destructive/5 transition"
         >
-          Delete account
+          {t("delete_btn")}
         </button>
       ) : (
         <div className="space-y-3">
           <p className="text-sm font-medium text-slate-700">
-            Type{" "}
+            {t("confirm_prompt")}{" "}
             <code className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-destructive">
               DELETE
-            </code>{" "}
-            to confirm:
+            </code>
           </p>
           <input
             className="input w-full"
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            placeholder="DELETE"
+            placeholder={t("confirm_placeholder")}
             autoFocus
+            dir="ltr"
           />
           <div className="flex gap-3">
             <button
@@ -677,7 +764,7 @@ function DangerZone() {
               disabled={confirmText !== "DELETE" || isPending}
               className="px-4 py-2 rounded-lg bg-destructive text-white text-sm font-medium hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              {isPending ? "Deleting…" : "Confirm delete"}
+              {isPending ? t("confirming_btn") : t("confirm_btn")}
             </button>
             <button
               onClick={() => {
@@ -686,7 +773,7 @@ function DangerZone() {
               }}
               className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50 transition"
             >
-              Cancel
+              {t("cancel")}
             </button>
           </div>
         </div>

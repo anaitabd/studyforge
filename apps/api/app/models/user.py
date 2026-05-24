@@ -25,5 +25,6 @@ class User(Base):
     notif_email: Mapped[bool] = mapped_column(Boolean, default=True)
     notif_whatsapp: Mapped[bool] = mapped_column(Boolean, default=False)
     notif_in_app: Mapped[bool] = mapped_column(Boolean, default=True)
+    language: Mapped[str] = mapped_column(String(10), default="fr")  # ar / fr
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

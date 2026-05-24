@@ -1,0 +1,138 @@
+{
+  "nav": {
+    "dashboard": "لوحة القيادة",
+    "groups": "مجموعاتي",
+    "rooms": "غرف الدراسة",
+    "flashcards": "البطاقات التعليمية",
+    "analytics": "التحليلات",
+    "exams": "الاختبارات",
+    "bac": "تحضير الباك",
+    "admin": "الإدارة"
+  },
+  "sidebar": {
+    "teacher_section": "أستاذ",
+    "platform_section": "المنصة",
+    "upgrade": "← الترقية"
+  },
+  "mobile_nav": {
+    "groups": "المجموعات",
+    "rooms": "الغرف",
+    "flashcards": "البطاقات",
+    "exams": "الاختبارات",
+    "profile": "الملف الشخصي"
+  },
+  "breadcrumbs": {
+    "dashboard": "لوحة القيادة",
+    "groups": "المجموعات",
+    "rooms": "غرف الدراسة",
+    "flashcards": "البطاقات التعليمية",
+    "exams": "الاختبارات",
+    "analytics": "التحليلات",
+    "account": "الحساب",
+    "admin": "الإدارة",
+    "chat": "الدردشة الذكية",
+    "files": "الملفات",
+    "settings": "الإعدادات",
+    "pricing": "الأسعار",
+    "join": "انضمام",
+    "flashcard": "بطاقة تعليمية",
+    "exam": "اختبار",
+    "group": "مجموعة",
+    "room": "غرفة",
+    "health": "الحالة",
+    "upgrade": "الترقية",
+    "features": "الميزات",
+    "faq": "أسئلة شائعة",
+    "bac": "تحضير الباك",
+    "practice": "تدريب",
+    "results": "النتائج"
+  },
+  "account": {
+    "title": "الحساب",
+    "subtitle": "إدارة ملفك الشخصي والاشتراك والتفضيلات.",
+    "load_error": "تعذّر تحميل بيانات الحساب.",
+    "tabs": {
+      "profile": "الملف الشخصي",
+      "subscription": "الاشتراك",
+      "usage": "الاستخدام",
+      "notifications": "الإشعارات",
+      "language": "اللغة"
+    },
+    "profile": {
+      "full_name": "الاسم الكامل",
+      "whatsapp": "رقم واتساب",
+      "whatsapp_format": "(E.164، مثال: +212612345678)",
+      "email_label": "البريد الإلكتروني",
+      "email_note": "قم بالتغيير في إعدادات Clerk",
+      "role_label": "الدور",
+      "plan_label": "الخطة",
+      "member_since": "عضو منذ",
+      "school_label": "المدرسة",
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم تحديث الملف الشخصي",
+      "error": "فشل التحديث",
+      "name_placeholder": "اسمك الكامل",
+      "wa_placeholder": "+212612345678"
+    },
+    "subscription": {
+      "current_plan": "الخطة الحالية",
+      "free_desc": "أنت على الخطة المجانية. قم بالترقية لفتح المزيد من رسائل الذكاء الاصطناعي والاختبارات والمجموعات.",
+      "upgrade_cta": "الترقية إلى Personal — 8 $/شهر",
+      "school_managed": "خطتك مُدارة من قِبل {school}. تواصل مع مديرك للأسئلة المتعلقة بالفواتير.",
+      "renews_on": "يتجدد في {date}.",
+      "ends_on": "تنتهي خطتك في {date}.",
+      "cancel_warning": "خطتك مضبوطة للإلغاء في نهاية فترة الفوترة.",
+      "manage_paypal": "إدارة اشتراك PayPal",
+      "update_payment": "تحديث الدفع على PayPal",
+      "resubscribe": "إعادة الاشتراك",
+      "payment_failed": "فشل الدفع",
+      "payment_past_due": "دفعتك متأخرة. قم بتحديث طريقة الدفع للحفاظ على وصولك.",
+      "status_free": "مجاني"
+    },
+    "usage": {
+      "chat_messages": "رسائل الذكاء الاصطناعي",
+      "chat_sublabel": "إعادة تعيين يومية عند منتصف الليل UTC",
+      "exams_generated": "الاختبارات المُولَّدة",
+      "exams_sublabel": "إعادة تعيين في الأول من كل شهر",
+      "groups_owned": "المجموعات المملوكة",
+      "groups_sublabel": "قم بالترقية لإنشاء المزيد",
+      "files_uploaded": "الملفات المرفوعة",
+      "files_sublabel": "الإجمالي — بلا حد"
+    },
+    "notifications": {
+      "in_app": "إشعارات داخل التطبيق",
+      "in_app_desc": "عرض التنبيهات والشارات داخل التطبيق",
+      "email": "إشعارات البريد الإلكتروني",
+      "email_desc": "استقبال التحديثات في بريدك الوارد",
+      "whatsapp": "إشعارات واتساب",
+      "whatsapp_desc": "استقبال الرسائل على واتساب",
+      "school_plan_required": "يتطلب خطة المدرسة",
+      "error": "فشل تحديث الإشعارات"
+    },
+    "language": {
+      "title": "لغة الواجهة",
+      "subtitle": "اختر لغة عرض StudyForge.",
+      "fr_label": "Français",
+      "ar_label": "العربية",
+      "saved": "تم تحديث اللغة",
+      "error": "فشل تغيير اللغة"
+    },
+    "danger": {
+      "title": "منطقة الخطر",
+      "description": "حذف حسابك نهائياً. سيتم إخفاء هوية جميع البيانات الشخصية ولا يمكن استرجاعها.",
+      "delete_btn": "حذف الحساب",
+      "confirm_prompt": "اكتب DELETE للتأكيد:",
+      "confirm_placeholder": "DELETE",
+      "confirm_btn": "تأكيد الحذف",
+      "confirming_btn": "جارٍ الحذف…",
+      "cancel": "إلغاء",
+      "success": "تم حذف الحساب",
+      "error": "فشل الحذف"
+    }
+  },
+  "errors": {
+    "load_failed": "تعذّر تحميل البيانات.",
+    "retry": "إعادة المحاولة"
+  }
+}

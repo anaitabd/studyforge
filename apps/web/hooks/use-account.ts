@@ -38,6 +38,7 @@ export interface AccountData {
   account_type: "individual" | "org";
   school_name: string | null;
   whatsapp_number: string | null;
+  language: "fr" | "ar";
   created_at: string;
   usage: AccountUsage;
   subscription: AccountSubscription;
@@ -55,7 +56,7 @@ export function useAccount() {
 export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { full_name?: string; whatsapp_number?: string | null }) =>
+    mutationFn: (data: { full_name?: string; whatsapp_number?: string | null; language?: "fr" | "ar" }) =>
       apiPatch<AccountData>("/api/v1/me/account", data),
     onSuccess: (updated) => {
       qc.setQueryData(["account"], updated);
